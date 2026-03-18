@@ -267,6 +267,8 @@ class ImageWindow(QMainWindow):
         self.idle_movie = QMovie(idle_gif_path)
         self.drag_movie = QMovie(drag_gif_path)
         self.chat_movie = QMovie(chat_git_path)
+        # 👉 【新增】：默认关闭勿扰模式
+        self.dnd_mode = False
 
         if not self.idle_movie.isValid():
             print(f"致命错误：无法加载 {idle_gif_path}")
@@ -318,12 +320,10 @@ class ImageWindow(QMainWindow):
             return ""
 
     def trigger_random_chatter(self):
-        """生物钟触发：随机决定要不要吐槽"""
-        # 1. 设定概率：假设每分钟只有 15% 的概率开口，避免太烦人
+        if getattr(self, 'dnd_mode', False):
+            return
         if random.random() > 1:
             return
-
-        # 2. 如果气泡当前正开着（说明你正在跟她聊天），就不要去打断
         if self.bubble.isVisible():
             return
 
@@ -349,7 +349,6 @@ class ImageWindow(QMainWindow):
         temp_worker = LLMWorker(secret_prompt)
 
         def on_chatter_response(reply):
-            # 👉 像幽灵一样突然弹出气泡，user_text 留空，因为是你没说话她主动找茬
             self.bubble.show_text(reply, user_text="")
             self.update_bubble_position()
             self.auto_close_timer.start(15000)
@@ -384,16 +383,32 @@ class ImageWindow(QMainWindow):
         self.context_menu = QMenu(self)
         action_input = QAction("对话", self)
         action_clear=QAction("一键失忆",self)
+        action_dnd = QAction("勿扰模式", self)
         action_close = QAction("退出", self)
 
         action_input.triggered.connect(self.input_dialog)
+        action_dnd.triggered.connect(self.toggle_dnd)
         action_close.triggered.connect(self.close)
         action_clear.triggered.connect(self.clear_memory)
 
         self.context_menu.addAction(action_input)
+        self.context_menu.addSeparator()
         self.context_menu.addAction(action_clear)
         self.context_menu.addSeparator()
+        self.context_menu.addAction(action_dnd)
+        self.context_menu.addSeparator()
         self.context_menu.addAction(action_close)
+
+    def toggle_dnd(self, checked):
+        """切换勿扰模式开关"""
+        self.dnd_mode = checked
+        if self.dnd_mode:
+            self.bubble.show_text("开启专注模式！本喵闭嘴就是了，哼！", user_text="")
+        else:
+            self.bubble.show_text("勿扰解除！你又可以挨本喵的骂了喵~", user_text="")
+
+        self.update_bubble_position()
+        self.auto_close_timer.start(5000)  # 提示气泡 5 秒后自动消失
 
     def clear_memory(self):
         self.chat_memory = [self.system_prompt]
@@ -419,7 +434,6 @@ class ImageWindow(QMainWindow):
         worker = LLMWorker(text)
 
         def on_llm_response(reply):
-            # 👉 【核心修改】：把 user_text 一并传给气泡，这样小猫回答时，你的问题依然在上面！
             self.bubble.show_text(reply, user_text=text)
             self.update_bubble_position()
             self.auto_close_timer.start(15000)
