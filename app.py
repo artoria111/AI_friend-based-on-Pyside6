@@ -2,6 +2,8 @@ import json
 import os
 import sys
 import requests
+import ctypes
+import random
 from PySide6.QtCore import Qt, Signal, QThread, QSize, QTimer
 from PySide6.QtGui import QMouseEvent, QAction, QContextMenuEvent, QMovie, QPainter
 from PySide6.QtWidgets import (
@@ -45,7 +47,7 @@ class LLMWorker(QThread):
         3. 不要说废话，直接给出带有情绪的回答。
         """
         payload = {
-            "model": "qwen2",
+            "model": "qwen2.5:7b",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": self.user_text}
@@ -249,6 +251,7 @@ class FloatingBubble(QWidget):
 class ImageWindow(QMainWindow):
     def __init__(self, idle_gif_path, drag_gif_path, chat_git_path,scale_factor=0.3):
         super().__init__()
+        self.setWindowTitle("MyDesktopPet")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
@@ -289,6 +292,77 @@ class ImageWindow(QMainWindow):
 
         self._init_main_menu()
         self.llm_workers = []
+        # 👉 【新增】：初始化随机吐槽系统
+        self.chatter_timer = QTimer(self)
+        self.chatter_timer.timeout.connect(self.trigger_random_chatter)
+        # 每 60 秒检查一次（60000 毫秒）
+        self.chatter_timer.start(60000)
+        # 👉 【新增】：气泡自动关闭计时器
+        self.auto_close_timer = QTimer(self)
+        self.auto_close_timer.setSingleShot(True)  # 只触发一次
+        # 时间到了就调用我们之前写的关闭气泡函数
+        self.auto_close_timer.timeout.connect(self.close_bubble_action)
+        self.bubble.input.textChanged.connect(self.auto_close_timer.stop)
+
+
+
+    def get_active_window_title(self):
+        """底层方法：获取当前正在操作的窗口标题（仅限 Windows）"""
+        try:
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            buff = ctypes.create_unicode_buffer(length + 1)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
+            return buff.value
+        except Exception as e:
+            return ""
+
+    def trigger_random_chatter(self):
+        """生物钟触发：随机决定要不要吐槽"""
+        # 1. 设定概率：假设每分钟只有 15% 的概率开口，避免太烦人
+        if random.random() > 1:
+            return
+
+        # 2. 如果气泡当前正开着（说明你正在跟她聊天），就不要去打断
+        if self.bubble.isVisible():
+            return
+
+        window_title = self.get_active_window_title()
+        ignore_keywords = [
+            "Program Manager", "Task Switching",
+            "python", "pycharm", "cmd", "powershell", "terminal",
+            "MyDesktopPet"
+        ]
+        if not window_title:
+            return
+
+        lower_title = window_title.lower()
+        for keyword in ignore_keywords:
+            if keyword.lower() in lower_title:
+                print(f"[Debug] 忽略了黑名单窗口: {window_title}")
+                return
+
+        print(f"捕捉到当前窗口信息：{window_title}")
+        secret_prompt = (f"【系统内部指令，无需回复此提示】我当前正在操作的屏幕窗口标题"
+                         f"是：'{window_title}'。请根据这个窗口的名字，用你的傲娇毒舌人设，"
+                         f"主动弹出来吐槽我一句。字数严格控制在20字以内！直接说吐槽的话！")
+        temp_worker = LLMWorker(secret_prompt)
+
+        def on_chatter_response(reply):
+            # 👉 像幽灵一样突然弹出气泡，user_text 留空，因为是你没说话她主动找茬
+            self.bubble.show_text(reply, user_text="")
+            self.update_bubble_position()
+            self.auto_close_timer.start(15000)
+            if hasattr(self, 'chat_movie') and self.chat_movie.isValid():
+                if hasattr(self, 'idle_movie') and self.idle_movie.isValid():
+                    self.idle_movie.stop()
+                self.label.set_movie(self.chat_movie, self.scale_factor)
+            if temp_worker in self.llm_workers:
+                self.llm_workers.remove(temp_worker)
+
+        temp_worker.response_ready.connect(on_chatter_response)
+        self.llm_workers.append(temp_worker)
+        temp_worker.start()
 
     def close_bubble_action(self):
         self.bubble.hide()
@@ -333,6 +407,7 @@ class ImageWindow(QMainWindow):
             self.label.set_movie(self.chat_movie, self.scale_factor)
         self.update_bubble_position()
         self.bubble.show_input()
+        self.auto_close_timer.stop()
 
     def handle_bubble_text(self, text):
         self.chat_memory.append({"role": "user", "content": text})
@@ -347,6 +422,7 @@ class ImageWindow(QMainWindow):
             # 👉 【核心修改】：把 user_text 一并传给气泡，这样小猫回答时，你的问题依然在上面！
             self.bubble.show_text(reply, user_text=text)
             self.update_bubble_position()
+            self.auto_close_timer.start(15000)
             self.chat_memory.append({"role": "assistant", "content": reply})
             self.save_memory()
             if worker in self.llm_workers:
