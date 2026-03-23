@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QApplication, QLabel, QMainWindow, QPushButton, QVBoxLayout,
     QHBoxLayout, QMenu, QDialog, QLineEdit, QTextBrowser, QWidget, QSizePolicy
 )
+import speech_recognition as sr
 
 # ==========================================
 # 1. 全局样式配置区
@@ -24,6 +25,32 @@ MODERN_STYLE_QSS = """
     QPushButton:pressed { background-color: #1D4ED8; }
 """
 
+
+class VoiceWorker(QThread):
+    """专门负责竖起耳朵听你说话的后台打工人"""
+    finished = Signal(str)  # 识别成功发送文字
+    error = Signal(str)  # 识别失败发送报错提示
+
+    def run(self):
+        recognizer = sr.Recognizer()
+        # 麦克风准备就绪
+        with sr.Microphone() as source:
+            try:
+                # 自动适应一下你房间的环境底噪（0.5秒）
+                recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                # 开始录音，最多等你 5 秒开口，单次最多录 10 秒
+                audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+
+                # 调用免费的在线识别引擎（默认 Google），指定中文
+                text = recognizer.recognize_google(audio, language='zh-CN')
+                self.finished.emit(text)
+
+            except sr.WaitTimeoutError:
+                self.error.emit("怎么不说话？拿本喵寻开心吗！")
+            except sr.UnknownValueError:
+                self.error.emit("嘟囔什么呢，大点声喵！")
+            except Exception as e:
+                self.error.emit(f"耳朵坏掉了喵：{str(e)}")
 
 # ==========================================
 # 2. 后台工作线程区 (负责与大模型通信)
@@ -179,18 +206,69 @@ class FloatingBubble(QWidget):
             "color: #111827; font-size: 14px; font-weight: bold; border: none; background: transparent;")
         self.ai_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
 
+        # 👉 【新增】：输入区域的横向布局（左边输入框，右边语音按钮）
+        input_layout = QHBoxLayout()
+        input_layout.setContentsMargins(0, 0, 0, 0)
+
         self.input = QLineEdit()
         self.input.setPlaceholderText("对我说点什么...")
         self.input.returnPressed.connect(self.on_submit)
 
+        self.btn_voice = QPushButton("🎤")
+        self.btn_voice.setFixedSize(36, 36)
+        self.btn_voice.setCursor(Qt.PointingHandCursor)
+        self.btn_voice.setStyleSheet("""
+                    QPushButton { border: 1px solid #E5E7EB; border-radius: 18px; background-color: #F9FAFB; font-size: 16px; }
+                    QPushButton:hover { background-color: #FFB6C1; border-color: #FFB6C1; color: white; }
+                """)
+        self.btn_voice.clicked.connect(self.start_voice_input)
+
+        input_layout.addWidget(self.input)
+        input_layout.addWidget(self.btn_voice)
+
         layout.addLayout(top_layout)
         layout.addWidget(self.ai_label)
         layout.addWidget(self.input)
+        layout.addLayout(input_layout)
 
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(self.container)
 
+
         self.hide()
+
+    def start_voice_input(self):
+        """点击麦克风，开始竖起耳朵"""
+        # 1. 改变界面状态，提示正在录音
+        self.input.clear()
+        self.input.setPlaceholderText("竖起耳朵聆听中...")
+        self.btn_voice.setEnabled(False)  # 防止狂点录音
+        self.btn_voice.setStyleSheet("background-color: #FFB6C1; border-radius: 18px; color: white;")
+
+        # 2. 召唤听写打工人
+        self.voice_worker = VoiceWorker()
+
+        def on_voice_success(text):
+            self.reset_voice_ui()
+            self.input.setText(text)  # 把听到的话填进输入框
+            self.on_submit()  # 👉 直接自动帮你按下回车发送！
+
+        def on_voice_error(err_msg):
+            self.reset_voice_ui()
+            self.input.setPlaceholderText(err_msg)
+
+        self.voice_worker.finished.connect(on_voice_success)
+        self.voice_worker.error.connect(on_voice_error)
+        self.voice_worker.start()
+
+    def reset_voice_ui(self):
+        """恢复输入框和按钮的原始状态"""
+        self.input.setPlaceholderText("对我说点什么...")
+        self.btn_voice.setEnabled(True)
+        self.btn_voice.setStyleSheet("""
+            QPushButton { border: 1px solid #E5E7EB; border-radius: 18px; background-color: #F9FAFB; font-size: 16px; }
+            QPushButton:hover { background-color: #FFB6C1; border-color: #FFB6C1; color: white; }
+        """)
 
     def on_submit(self):
         text = self.input.text().strip()
@@ -399,16 +477,26 @@ class ImageWindow(QMainWindow):
         self.context_menu.addSeparator()
         self.context_menu.addAction(action_close)
 
-    def toggle_dnd(self, checked):
-        """切换勿扰模式开关"""
-        self.dnd_mode = checked
+    def toggle_dnd(self, checked=False):
+        """切换勿扰模式开关（手自一体绝对可靠版）"""
+        # 👉 1. 核心魔法：无视系统传的参数，强制将当前状态反转 (True变False，False变True)
+        self.dnd_mode = not getattr(self, 'dnd_mode', False)
+
+        # 👉 2. 强行纠正菜单 UI：让菜单里的“√”号跟我们的真实状态保持一致
+        if hasattr(self, 'action_dnd'):
+            self.action_dnd.setChecked(self.dnd_mode)
+
+        # 3. 根据最真实的开关状态，让小粉猫说不同的话
         if self.dnd_mode:
             self.bubble.show_text("开启专注模式！本喵闭嘴就是了，哼！", user_text="")
         else:
             self.bubble.show_text("勿扰解除！你又可以挨本喵的骂了喵~", user_text="")
 
         self.update_bubble_position()
-        self.auto_close_timer.start(5000)  # 提示气泡 5 秒后自动消失
+
+        # 气泡 5 秒后自动消失
+        if hasattr(self, 'auto_close_timer'):
+            self.auto_close_timer.start(5000)
 
     def clear_memory(self):
         self.chat_memory = [self.system_prompt]
