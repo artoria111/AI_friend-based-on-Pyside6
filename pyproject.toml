@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.10"
 dependencies = [
+    "edge-tts>=7.2.8",
     "pyaudio>=0.2.14",
     "pyside6>=6.10.2",
     "requests>=2.32.5",

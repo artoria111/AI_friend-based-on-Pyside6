@@ -1,14 +1,16 @@
 import ctypes
+import glob
 import json
 import os
 import random
 import sys
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, QUrl
 from PySide6.QtGui import QMovie, QAction, QContextMenuEvent, QMouseEvent
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import QMainWindow, QMenu
 
-from workers import LLMWorker, VoiceWorker
+from workers import LLMWorker, VoiceWorker, TTSWorker
 from widgets import HighQualityGifLabel, FloatingBubble
 
 class ImageWindow(QMainWindow):
@@ -45,7 +47,7 @@ class ImageWindow(QMainWindow):
         self.system_prompt = {
             "role": "system",
             "content": """                
-                你现在不是一个人工智能，而是我的专属桌面宠物，名叫“粉红小猫”。
+                你现在不是一个人工智能，而是我的专属桌面宠物，名叫“千早爱音”。
                 你的性格傲娇、毒舌，但内心其实很关心我。
                 你说话要在句末加上“喵~”，并且经常用冷嘲热讽的语气。
                 规则：
@@ -75,8 +77,34 @@ class ImageWindow(QMainWindow):
         # 时间到了就调用我们之前写的关闭气泡函数
         self.auto_close_timer.timeout.connect(self.close_bubble_action)
         self.bubble.input.textChanged.connect(self.auto_close_timer.stop)
+        # 👉 【新增】：初始化发声器官（音频播放器）
+        self.player = QMediaPlayer()
+        self.audio_output = QAudioOutput()
+        self.player.setAudioOutput(self.audio_output)
+        self.audio_output.setVolume(1.0)  # 音量拉满！
+        self.current_audio_file = None  # 记录当前播放的文件
 
+    def speak_text(self, text):
+        """触发配音并播放"""
+        self.tts_worker = TTSWorker(text)
+        self.tts_worker.finished.connect(self.play_voice)
+        self.tts_worker.start()
 
+    def play_voice(self, file_path):
+        """拿到音频文件后立即播放，并清理上一个垃圾文件"""
+        self.player.stop()
+
+        # 为了不占你的硬盘空间，每次播放新声音前，把上一条语音删掉
+        if self.current_audio_file and os.path.exists(self.current_audio_file):
+            try:
+                os.remove(self.current_audio_file)
+            except:
+                pass
+
+        self.current_audio_file = file_path
+        # PySide6 的播放器需要的是 QUrl 格式的本地路径
+        self.player.setSource(QUrl.fromLocalFile(file_path))
+        self.player.play()
 
     def get_active_window_title(self):
         """底层方法：获取当前正在操作的窗口标题（仅限 Windows）"""
@@ -120,6 +148,7 @@ class ImageWindow(QMainWindow):
 
         def on_chatter_response(reply):
             self.bubble.show_text(reply, user_text="")
+            self.speak_text(reply)
             self.update_bubble_position()
             self.auto_close_timer.start(15000)
             if hasattr(self, 'chat_movie') and self.chat_movie.isValid():
@@ -215,6 +244,7 @@ class ImageWindow(QMainWindow):
 
         def on_llm_response(reply):
             self.bubble.show_text(reply, user_text=text)
+            self.speak_text(reply)
             self.update_bubble_position()
             self.auto_close_timer.start(15000)
             self.chat_memory.append({"role": "assistant", "content": reply})
@@ -302,3 +332,28 @@ class ImageWindow(QMainWindow):
         with open(self.history_file, "w", encoding="utf-8") as f:
             # indent=4 让存下来的 json 文件也能被人看懂
             json.dump(self.chat_memory, f, ensure_ascii=False, indent=4)
+
+    def closeEvent(self, event):
+        """窗口关闭时的终极保洁工作（自动触发）"""
+        # 1. 停止播放并清空播放器，防止最后一个音频被占用锁死无法删除
+        if hasattr(self, 'player'):
+            self.player.stop()
+            self.player.setSource(QUrl())
+
+            # 2. 找出当前目录下所有以 "temp_voice_" 开头的 wav 垃圾文件
+        temp_files = glob.glob("temp_voice_*.wav")
+
+        # 3. 无情销毁！
+        for file in temp_files:
+            try:
+                os.remove(file)
+                print(f"[保洁] 已清理: {file}") # 测试时可以解除注释看效果
+            except Exception as e:
+                pass  # 如果被锁定了删不掉就假装没看见
+
+        # 4. 顺手保存一下最后的记忆（以防万一）
+        if hasattr(self, 'save_memory'):
+            self.save_memory()
+
+        # 5. 放行！允许窗口正常关闭
+        event.accept()
