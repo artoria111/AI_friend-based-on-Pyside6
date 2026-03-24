@@ -1,0 +1,238 @@
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QPainter
+from PySide6.QtWidgets import QHBoxLayout, QPushButton,QWidget, QLabel, QLineEdit, QVBoxLayout, QSizePolicy
+from PySide6.QtCore import Signal, Qt
+
+from workers import VoiceWorker
+
+MODERN_STYLE_QSS = """
+    QDialog { background-color: #F3F4F6; }
+    QTextBrowser { background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; padding: 12px; font-size: 15px; font-family: "Microsoft YaHei", "Segoe UI"; line-height: 1.6; }
+    QLineEdit { border: 1px solid #D1D5DB; border-radius: 6px; padding: 10px; font-size: 14px; background-color: #FFFFFF; }
+    QLineEdit:focus { border: 1px solid #3B82F6; }
+    QPushButton { background-color: #3B82F6; color: white; border: none; border-radius: 6px; padding: 10px 20px; font-size: 14px; font-weight: bold; }
+    QPushButton:hover { background-color: #2563EB; }
+    QPushButton:pressed { background-color: #1D4ED8; }
+"""
+class HighQualityGifLabel(QLabel):
+    """专门处理 GIF 高质量平滑缩放的标签"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._movie = None
+        self._scale_factor = 1.0
+        self._scaled_size = QSize()
+        self.setScaledContents(False)
+
+    def set_movie(self, movie, scale_factor=1.0):
+        self._movie = movie
+        self._scale_factor = scale_factor
+        self._movie.start()
+
+        original_size = self._movie.currentPixmap().size()
+        self._scaled_size = QSize(
+            int(original_size.width() * self._scale_factor),
+            int(original_size.height() * self._scale_factor)
+        )
+
+        self._movie.frameChanged.connect(self.update)
+        super().setMovie(self._movie)
+        self.setFixedSize(self._scaled_size)
+
+    def get_scaled_size(self):
+        return self._scaled_size
+
+    def paintEvent(self, event):
+        if not self._movie or not self._movie.isValid():
+            return super().paintEvent(event)
+
+        current_pixmap = self._movie.currentPixmap()
+        if current_pixmap.isNull():
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+
+        scaled_pixmap = current_pixmap.scaled(
+            self._scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+        painter.drawPixmap(0, 0, scaled_pixmap)
+        painter.end()
+
+class FloatingBubble(QWidget):
+    """悬浮双态气泡：上方显示你的问题，下方显示小猫的回答"""
+    text_submitted = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        self.container = QWidget(self)
+        # 👉 【优化】：给容器命名，防止外框样式污染到里面的文字
+        self.container.setObjectName("BubbleContainer")
+        self.container.setStyleSheet("""
+            #BubbleContainer {
+                background-color: rgba(255, 255, 255, 245); 
+                border: 2px solid #FFB6C1; 
+                border-radius: 15px;       
+            }
+            QLineEdit {
+                border: 1px solid #E5E7EB;
+                border-radius: 8px;
+                padding: 8px;
+                font-size: 14px;
+                background-color: #F9FAFB;
+            }
+            QLineEdit:focus { border: 1px solid #FFB6C1; }
+        """)
+
+        layout = QVBoxLayout(self.container)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(4)  # 缩小两行文字的间距
+
+        # 👉 【新增】：顶部横向布局（左边放你的话，右边放关闭按钮）
+        top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.user_label = QLabel("")
+        self.user_label.setWordWrap(True)
+        self.user_label.setStyleSheet("color: #6B7280; font-size: 12px; border: none; background: transparent;")
+        self.user_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+
+        self.btn_close = QPushButton("✖")
+        self.btn_close.setFixedSize(20, 20)
+        self.btn_close.setCursor(Qt.PointingHandCursor)  # 鼠标悬浮变成小手
+        self.btn_close.setStyleSheet("""
+                    QPushButton { border: none; color: #9CA3AF; font-size: 14px; font-weight: bold; background: transparent; }
+                    QPushButton:hover { color: #EF4444; } /* 鼠标移上去变红色 */
+                """)
+        # 把文字和按钮放进顶部布局
+        top_layout.addWidget(self.user_label)
+        top_layout.addStretch()  # 放个弹簧，把关闭按钮挤到最右边
+        top_layout.addWidget(self.btn_close, 0, Qt.AlignTop)
+        # 👉 用来显示小猫的回答
+        self.ai_label = QLabel("")
+        self.ai_label.setWordWrap(True)
+        self.ai_label.setStyleSheet(
+            "color: #111827; font-size: 14px; font-weight: bold; border: none; background: transparent;")
+        self.ai_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+
+        # 👉 【新增】：输入区域的横向布局（左边输入框，右边语音按钮）
+        input_layout = QHBoxLayout()
+        input_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("对我说点什么...")
+        self.input.returnPressed.connect(self.on_submit)
+
+        self.btn_voice = QPushButton("🎤")
+        self.btn_voice.setFixedSize(36, 36)
+        self.btn_voice.setCursor(Qt.PointingHandCursor)
+        self.btn_voice.setStyleSheet("""
+                    QPushButton { border: 1px solid #E5E7EB; border-radius: 18px; background-color: #F9FAFB; font-size: 16px; }
+                    QPushButton:hover { background-color: #FFB6C1; border-color: #FFB6C1; color: white; }
+                """)
+        self.btn_voice.clicked.connect(self.start_voice_input)
+
+        input_layout.addWidget(self.input)
+        input_layout.addWidget(self.btn_voice)
+
+        layout.addLayout(top_layout)
+        layout.addWidget(self.ai_label)
+        layout.addWidget(self.input)
+        layout.addLayout(input_layout)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(self.container)
+
+
+        self.hide()
+
+    def start_voice_input(self):
+        """点击麦克风，开始竖起耳朵"""
+        # 1. 改变界面状态，提示正在录音
+        self.input.clear()
+        self.input.setPlaceholderText("竖起耳朵聆听中...")
+        self.btn_voice.setEnabled(False)  # 防止狂点录音
+        self.btn_voice.setStyleSheet("background-color: #FFB6C1; border-radius: 18px; color: white;")
+
+        # 2. 召唤听写打工人
+        self.voice_worker = VoiceWorker()
+
+        def on_voice_success(text):
+            self.reset_voice_ui()
+            self.input.setText(text)  # 把听到的话填进输入框
+            self.on_submit()  # 👉 直接自动帮你按下回车发送！
+
+        def on_voice_error(err_msg):
+            self.reset_voice_ui()
+            self.input.setPlaceholderText(err_msg)
+
+        self.voice_worker.finished.connect(on_voice_success)
+        self.voice_worker.error.connect(on_voice_error)
+        self.voice_worker.start()
+
+    def reset_voice_ui(self):
+        """恢复输入框和按钮的原始状态"""
+        self.input.setPlaceholderText("对我说点什么...")
+        self.btn_voice.setEnabled(True)
+        self.btn_voice.setStyleSheet("""
+            QPushButton { border: 1px solid #E5E7EB; border-radius: 18px; background-color: #F9FAFB; font-size: 16px; }
+            QPushButton:hover { background-color: #FFB6C1; border-color: #FFB6C1; color: white; }
+        """)
+
+    def on_submit(self):
+        text = self.input.text().strip()
+        if text:
+            self.text_submitted.emit(text)
+            self.input.clear()
+            self.show_text("小脑袋转动中...", user_text=text)
+
+    def show_input(self):
+        """唤醒气泡：保持之前的聊天记录不变，只聚焦输入框"""
+        self.input.show()
+        self.show()
+        self.adjustSize()
+        self.input.setFocus()  # 自动聚焦，直接打字
+
+    def show_text(self, ai_text, user_text=None):
+        """进入【展示形态】：上方聊天记录，下方保留输入框！"""
+        # 👉 【关键修复】：绝对不要隐藏输入框！让它常驻！
+        self.input.show()
+
+        # 测量你的文字宽度
+        if user_text:
+            self.user_label.setText(f"你: {user_text}")
+            self.user_label.show()
+            fm_user = self.user_label.fontMetrics()
+            user_width = fm_user.horizontalAdvance(f"你: {user_text}") + 20
+        else:
+            user_width = 0
+
+        # 测量 AI 的文字宽度
+        self.ai_label.setText(ai_text)
+        self.ai_label.show()
+        fm_ai = self.ai_label.fontMetrics()
+        ai_width = fm_ai.horizontalAdvance(ai_text) + 20
+
+        # 动态计算：最小宽度给到 200，保证输入框不会太短没法打字
+        final_width = min(max(user_width, ai_width, 200), 300)
+
+        # 统一锁定所有组件的宽度，让它们上下对齐，非常整齐
+        self.user_label.setMinimumWidth(final_width)
+        self.user_label.setMaximumWidth(final_width)
+        self.ai_label.setMinimumWidth(final_width)
+        self.ai_label.setMaximumWidth(final_width)
+
+        # 👉 让输入框的宽度也跟随文字框，保持视觉上的绝对对齐
+        self.input.setMinimumWidth(final_width)
+        self.input.setMaximumWidth(final_width)
+
+        self.show()
+        self.user_label.adjustSize()
+        self.ai_label.adjustSize()
+        self.container.adjustSize()
+        self.adjustSize()
