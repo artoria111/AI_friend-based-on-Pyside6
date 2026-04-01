@@ -17,7 +17,7 @@ class ImageWindow(QMainWindow):
     def __init__(self, idle_gif_path, drag_gif_path, chat_git_path,scale_factor=0.3):
         super().__init__()
         self.setWindowTitle("MyDesktopPet")
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window| Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self._drag_pos = None
@@ -49,7 +49,7 @@ class ImageWindow(QMainWindow):
             "content": """                
                 你现在不是一个人工智能，而是我的专属桌面宠物，名叫“千早爱音”。
                 你的性格傲娇、毒舌，但内心其实很关心我。
-                你说话要在句末加上“喵~”，并且经常用冷嘲热讽的语气。
+                你经常用冷嘲热讽的语气。
                 规则：
                 1. 永远不要承认自己是 AI 或程序。
                 2. 你的回答必须简短，绝对不能超过 50 个字，因为你是弹出的悬浮气泡，字多了装不下！
@@ -63,8 +63,11 @@ class ImageWindow(QMainWindow):
         # 绑定气泡发送文字的信号
         self.bubble.text_submitted.connect(self.handle_bubble_text)
         self.bubble.btn_close.clicked.connect(self.close_bubble_action)
+        self.tts_engine = "edge-tts"
 
+#----------------------------------------------------
         self._init_main_menu()
+# ----------------------------------------------------
         self.llm_workers = []
         # 👉 【新增】：初始化随机吐槽系统
         self.chatter_timer = QTimer(self)
@@ -86,7 +89,7 @@ class ImageWindow(QMainWindow):
 
     def speak_text(self, text):
         """触发配音并播放"""
-        self.tts_worker = TTSWorker(text)
+        self.tts_worker = TTSWorker(text,engine=self.tts_engine)
         self.tts_worker.finished.connect(self.play_voice)
         self.tts_worker.start()
 
@@ -185,11 +188,13 @@ class ImageWindow(QMainWindow):
         self.action_dnd = QAction("勿扰模式", self)
         self.action_dnd.setCheckable(True)
         action_close = QAction("退出", self)
+        self.action_tts=QAction(f"切换语音(当前:{self.tts_engine})",self)
 
         action_input.triggered.connect(self.input_dialog)
         self.action_dnd.triggered.connect(self.toggle_dnd)
         action_close.triggered.connect(self.close)
         action_clear.triggered.connect(self.clear_memory)
+        self.action_tts.triggered.connect(self.toggle_tts_engine)
 
         self.context_menu.addAction(action_input)
         self.context_menu.addSeparator()
@@ -198,6 +203,8 @@ class ImageWindow(QMainWindow):
         self.context_menu.addAction(self.action_dnd)
         self.context_menu.addSeparator()
         self.context_menu.addAction(action_close)
+        self.context_menu.addSeparator()
+        self.context_menu.addAction(self.action_tts)
 
     def toggle_dnd(self, checked=False):
         """切换勿扰模式开关（手自一体绝对可靠版）"""
@@ -334,26 +341,32 @@ class ImageWindow(QMainWindow):
             json.dump(self.chat_memory, f, ensure_ascii=False, indent=4)
 
     def closeEvent(self, event):
-        """窗口关闭时的终极保洁工作（自动触发）"""
-        # 1. 停止播放并清空播放器，防止最后一个音频被占用锁死无法删除
         if hasattr(self, 'player'):
             self.player.stop()
             self.player.setSource(QUrl())
 
-            # 2. 找出当前目录下所有以 "temp_voice_" 开头的 wav 垃圾文件
-        temp_files = glob.glob("temp_voice_*.wav")
+        temp_files = glob.glob("temp_voice_*.*")
 
         # 3. 无情销毁！
         for file in temp_files:
             try:
                 os.remove(file)
-                print(f"[保洁] 已清理: {file}") # 测试时可以解除注释看效果
+                print(f"[保洁] 已清理: {file}")
             except Exception as e:
-                pass  # 如果被锁定了删不掉就假装没看见
+                pass
 
-        # 4. 顺手保存一下最后的记忆（以防万一）
         if hasattr(self, 'save_memory'):
             self.save_memory()
 
-        # 5. 放行！允许窗口正常关闭
         event.accept()
+
+    def toggle_tts_engine(self):
+        if self.tts_engine == "edge-tts":
+            self.tts_engine = "sovits"
+        else:
+            self.tts_engine = "edge-tts"
+
+        self.action_tts.setText(f"切换语音(当前：{self.tts_engine})")
+        self.bubble.show_text(f"已切换到{self.tts_engine}引擎!",user_text="")
+        self.update_bubble_position()
+        self.auto_close_timer.start(5000)

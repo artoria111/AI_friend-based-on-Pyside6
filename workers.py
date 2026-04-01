@@ -1,59 +1,65 @@
+import asyncio
 import os
 import re
 import time
+
+import edge_tts
 import requests
 from PySide6.QtCore import QThread, Signal
 import speech_recognition as sr
 
 
 class TTSWorker(QThread):
-    """专门连接本地 GPT-SoVITS 模型的配音打工人"""
     finished = Signal(str)
 
-    def __init__(self, text):
+    def __init__(self, text,engine="edge-tts"):
         super().__init__()
         self.text = text
-        # 本地合成一般用 wav 格式，无损且响应快
-        self.output_file = os.path.abspath(f"temp_voice_{int(time.time())}.wav")
+        self.engine=engine
+        self.base_filename= os.path.abspath(f"temp_voice_{int(time.time())}")
 
     def run(self):
+        clean_text = re.sub(r'\*.*?\*', '', self.text).strip()
+        if not clean_text:
+            return
+
+        if self.engine=="edge-tts":
+            self._run_edge_tts(clean_text)
+        elif self.engine=="sovits":
+            self._run_sovits(clean_text)
+
+    def _run_edge_tts(self, text):
+        output_file=f"{self.base_filename}.mp3"
         try:
-            # 1. 清洗掉大模型生成的动作标签，比如把 "*傲娇地撇嘴* 笨蛋" 变成 "笨蛋"
-            clean_text = re.sub(r'\*.*?\*', '', self.text).strip()
+            async def _generate():
+                tts=edge_tts.Communicate(text,"zh-CN-XiaoyiNeural")
+                await tts.save(output_file)
+            asyncio.run(_generate())
+            self.finished.emit(output_file)
+        except Exception as e:
+            print(f"Edge-TTS 引擎故障喵:{e}")
 
-            if not clean_text:
-                return
-
-            # 2. GPT-SoVITS 的标准本地 API 地址 (默认端口通常是 9880)
+    def _run_sovits(self, text):
+        output_file=f"{self.base_filename}.wav"
+        try:
             url = "http://127.0.0.1:9880/"
-
-            # 3. 构造请求参数
-            # 如果你在 api.py 里已经写死了参考音频，这里只需要传文本就行了！
             payload = {
-                "text": clean_text,
+                "text": text,
                 "text_language": "zh"
-
-                # 💡 如果你在 API 端没有设置默认参考音频，就需要在这里把参数传过去，把下面几行取消注释并填好：
                 # "ref_audio_path": "D:/GPT-SoVITS/参考音频.wav",
                 # "prompt_text": "这是参考音频里面说的话哦",
                 # "prompt_lang": "zh"
             }
-
-            # 4. 发送生成请求 (使用 POST 方式更稳定)
             response = requests.post(url, json=payload)
             response.raise_for_status()  # 检查有没有报错
-
-            # 5. 把拿回来的二进制音频数据保存成 .wav 文件
             with open(self.output_file, "wb") as f:
                 f.write(response.content)
 
-            # 6. 通知主线程：音频准备好了，快播放！
             self.finished.emit(self.output_file)
-
         except requests.exceptions.ConnectionError:
-            print("\n❌ 语音合成失败：GPT-SoVITS 的 API 后台没启动喵？")
+            print("\n❌ SoVITS 后台没开！本喵成了小哑巴")
         except Exception as e:
-            print(f"\n❌ 配音报错喵: {e}")
+            print(f"\n❌ SoVITS 引擎故障喵: {e}")
 
 class VoiceWorker(QThread):
     """专门负责竖起耳朵听你说话的后台打工人"""
