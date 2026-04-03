@@ -6,18 +6,18 @@ import random
 import sys
 
 from PySide6.QtCore import QTimer, Qt, QUrl
-from PySide6.QtGui import QMovie, QAction, QContextMenuEvent, QMouseEvent
+from PySide6.QtGui import  QAction, QContextMenuEvent, QMouseEvent
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtWidgets import QMainWindow, QMenu
+from PySide6.QtWidgets import QMainWindow, QMenu, QApplication
 
 from workers import LLMWorker, VoiceWorker, TTSWorker
-from widgets import HighQualityGifLabel, FloatingBubble
+from widgets import Live2DWidget, FloatingBubble
 
 class ImageWindow(QMainWindow):
     def __init__(self, idle_gif_path, drag_gif_path, chat_git_path,scale_factor=0.3):
         super().__init__()
         self.setWindowTitle("MyDesktopPet")
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window| Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self._drag_pos = None
@@ -26,34 +26,34 @@ class ImageWindow(QMainWindow):
         self.visual_timer.timeout.connect(self._enable_drag_visuals)
         self.scale_factor = scale_factor
 
-        self.label = HighQualityGifLabel(self)
-        self.setCentralWidget(self.label)
+        model_path = "mao_pro_zh/runtime/mao_pro.model3.json"
+        self.view = Live2DWidget(model_path, self)
+        self.setCentralWidget(self.view)
+        self.resize(400, 1000)
 
-        self.idle_movie = QMovie(idle_gif_path)
-        self.drag_movie = QMovie(drag_gif_path)
-        self.chat_movie = QMovie(chat_git_path)
         # 👉 【新增】：默认关闭勿扰模式
         self.dnd_mode = False
-
-        if not self.idle_movie.isValid():
-            print(f"致命错误：无法加载 {idle_gif_path}")
-            sys.exit(1)
-
-        # 👉 统一调用自定义的高质量缩放方法
-        self.label.set_movie(self.idle_movie, self.scale_factor)
-        self.resize(self.label.get_scaled_size())
 
         self.history_file = "pet_memory.json"
         self.system_prompt = {
             "role": "system",
-            "content": """                
-                你现在不是一个人工智能，而是我的专属桌面宠物，名叫“千早爱音”。
+            "content": """
+                你现在不是一个人工智能，而是我的专属桌面宠物，名叫“粉红小猫”。
                 你的性格傲娇、毒舌，但内心其实很关心我。
-                你经常用冷嘲热讽的语气。
+                你说话要在句末加上“喵~”，并且经常用冷嘲热讽的语气。
                 规则：
                 1. 永远不要承认自己是 AI 或程序。
                 2. 你的回答必须简短，绝对不能超过 50 个字，因为你是弹出的悬浮气泡，字多了装不下！
-                3. 不要说废话，直接给出带有情绪的回答。"""
+                3. 不要说废话，直接给出带有情绪的回答。
+                
+                如果你发现主人想让你“记住”某事，请在回复的开头加上 [MEMO] 标记。
+                如果你发现主人想让你“提醒”某事（带具体时间），请在开头加上 [ALARM:时间(秒)] 标记。
+                示例：
+                用户：帮我记下今天代码写得很顺。
+                回复：[MEMO] 记下来了喵！今天也是个高产的笨蛋呢。
+                用户：30分钟后叫我喝水。
+                回复：[ALARM:1800] 知道了喵，半小时后本喵会来吵死你的！
+                """
         }
         # 启动时加载记忆
         self.chat_memory = self.load_memory()
@@ -64,6 +64,9 @@ class ImageWindow(QMainWindow):
         self.bubble.text_submitted.connect(self.handle_bubble_text)
         self.bubble.btn_close.clicked.connect(self.close_bubble_action)
         self.tts_engine = "edge-tts"
+        self.diary_file = "pet_diary.json"
+        self.reminders = []  # 存放待触发的提醒任务
+
 
 #----------------------------------------------------
         self._init_main_menu()
@@ -154,10 +157,6 @@ class ImageWindow(QMainWindow):
             self.speak_text(reply)
             self.update_bubble_position()
             self.auto_close_timer.start(15000)
-            if hasattr(self, 'chat_movie') and self.chat_movie.isValid():
-                if hasattr(self, 'idle_movie') and self.idle_movie.isValid():
-                    self.idle_movie.stop()
-                self.label.set_movie(self.chat_movie, self.scale_factor)
             if temp_worker in self.llm_workers:
                 self.llm_workers.remove(temp_worker)
 
@@ -167,18 +166,12 @@ class ImageWindow(QMainWindow):
 
     def close_bubble_action(self):
         self.bubble.hide()
-        if hasattr(self, 'idle_movie') and self.idle_movie.isValid():
-            if hasattr(self, 'chat_movie') and self.chat_movie.isValid():
-                self.chat_movie.stop()
-            self.label.set_movie(self.idle_movie, self.scale_factor)
+
 
     def update_bubble_position(self):
-        """让气泡始终跟随在桌宠的右上角"""
-        # 获取桌宠当前的位置
         pet_rect = self.frameGeometry()
-        # 将气泡移动到桌宠的右上方 (x坐标偏右，y坐标偏上)
-        bubble_x = pet_rect.right() - 20
-        bubble_y = pet_rect.top() - 30
+        bubble_x = pet_rect.right() - 550
+        bubble_y = pet_rect.top() + 250
         self.bubble.move(bubble_x, bubble_y)
 
     def _init_main_menu(self):
@@ -207,15 +200,10 @@ class ImageWindow(QMainWindow):
         self.context_menu.addAction(self.action_tts)
 
     def toggle_dnd(self, checked=False):
-        """切换勿扰模式开关（手自一体绝对可靠版）"""
-        # 👉 1. 核心魔法：无视系统传的参数，强制将当前状态反转 (True变False，False变True)
         self.dnd_mode = not getattr(self, 'dnd_mode', False)
-
-        # 👉 2. 强行纠正菜单 UI：让菜单里的“√”号跟我们的真实状态保持一致
         if hasattr(self, 'action_dnd'):
             self.action_dnd.setChecked(self.dnd_mode)
 
-        # 3. 根据最真实的开关状态，让小粉猫说不同的话
         if self.dnd_mode:
             self.bubble.show_text("开启专注模式！本喵闭嘴就是了，哼！", user_text="")
         else:
@@ -223,7 +211,6 @@ class ImageWindow(QMainWindow):
 
         self.update_bubble_position()
 
-        # 气泡 5 秒后自动消失
         if hasattr(self, 'auto_close_timer'):
             self.auto_close_timer.start(5000)
 
@@ -234,9 +221,6 @@ class ImageWindow(QMainWindow):
         self.update_bubble_position()
 
     def input_dialog(self):
-        if self.chat_movie.isValid():
-            self.idle_movie.stop()
-            self.label.set_movie(self.chat_movie, self.scale_factor)
         self.update_bubble_position()
         self.bubble.show_input()
         self.auto_close_timer.stop()
@@ -250,8 +234,23 @@ class ImageWindow(QMainWindow):
 
 
         def on_llm_response(reply):
-            self.bubble.show_text(reply, user_text=text)
-            self.speak_text(reply)
+            if reply.startswith("[ALARM:"):
+                try:
+                    seconds = int(reply.split(":")[1].split("]")[0])
+                    msg = reply.split("]")[1].strip()
+                    QTimer.singleShot(seconds * 1000, lambda: self.trigger_hardcore_reminder(msg))
+                    display_reply = msg
+                except:
+                    display_reply = reply
+
+            elif reply.startswith("[MEMO]"):
+                display_reply = reply.replace("[MEMO]", "").strip()
+                self.save_to_diary(text)
+
+            else:
+                display_reply = reply
+            self.bubble.show_text(display_reply, user_text=text)
+            self.speak_text(display_reply)
             self.update_bubble_position()
             self.auto_close_timer.start(15000)
             self.chat_memory.append({"role": "assistant", "content": reply})
@@ -269,19 +268,13 @@ class ImageWindow(QMainWindow):
 
     def _enable_drag_visuals(self):
         self.setCursor(Qt.ClosedHandCursor)
-        if self.drag_movie.isValid():
-            self.idle_movie.stop()
-            self.label.set_movie(self.drag_movie, self.scale_factor)
+
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self.visual_timer.start(150)
             self.setCursor(Qt.ClosedHandCursor)
-
-            if self.drag_movie.isValid():
-                self.idle_movie.stop()
-                self.label.set_movie(self.drag_movie, self.scale_factor)
             event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent):
@@ -300,12 +293,6 @@ class ImageWindow(QMainWindow):
             if self.visual_timer.isActive():
                 self.visual_timer.stop()
             self.unsetCursor()
-            if self.bubble.isVisible() and self.chat_movie.isValid():
-                self.drag_movie.stop()
-                self.label.set_movie(self.chat_movie, self.scale_factor)
-            elif self.idle_movie.isValid():
-                self.drag_movie.stop()
-                self.label.set_movie(self.idle_movie, self.scale_factor)
 
             event.accept()
 
@@ -370,3 +357,29 @@ class ImageWindow(QMainWindow):
         self.bubble.show_text(f"已切换到{self.tts_engine}引擎!",user_text="")
         self.update_bubble_position()
         self.auto_close_timer.start(5000)
+
+    def save_to_diary(self, content):
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        entry = {"time": timestamp, "content": content}
+
+        # 读取并追加
+        diary_data = []
+        if os.path.exists(self.diary_file):
+            with open(self.diary_file, "r", encoding="utf-8") as f:
+                diary_data = json.load(f)
+
+        diary_data.append(entry)
+
+        with open(self.diary_file, "w", encoding="utf-8") as f:
+            json.dump(diary_data, f, ensure_ascii=False, indent=4)
+
+    def trigger_hardcore_reminder(self, msg):
+        screen = QApplication.primaryScreen().geometry()
+        self.move(screen.center() - self.rect().center())
+
+        reminder_text = f"喂！笨蛋！时间到了！该去‘{msg}’了喵！快去，不然本喵一直盯着你！"
+        self.bubble.show_text(reminder_text, user_text="")
+        self.bubble.btn_close.hide()  # 藏起关闭按钮
+
+        self.bubble.input.setPlaceholderText("输入‘我知道了’解除霸屏...")

@@ -1,7 +1,9 @@
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QHBoxLayout, QPushButton,QWidget, QLabel, QLineEdit, QVBoxLayout, QSizePolicy
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt,QTimer
+import live2d.v3 as live2d
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from workers import VoiceWorker
 
@@ -14,55 +16,54 @@ MODERN_STYLE_QSS = """
     QPushButton:hover { background-color: #2563EB; }
     QPushButton:pressed { background-color: #1D4ED8; }
 """
-class HighQualityGifLabel(QLabel):
-    """专门处理 GIF 高质量平滑缩放的标签"""
 
-    def __init__(self, parent=None):
+class Live2DWidget(QOpenGLWidget):
+    """专属的 Live2D 实时渲染画布"""
+
+    def __init__(self, model_json_path, parent=None):
         super().__init__(parent)
-        self._movie = None
-        self._scale_factor = 1.0
-        self._scaled_size = QSize()
-        self.setScaledContents(False)
+        self.model_json_path = model_json_path
+        self.model = None
 
-    def set_movie(self, movie, scale_factor=1.0):
-        self._movie = movie
-        self._scale_factor = scale_factor
-        self._movie.start()
+        # 👉 【极其关键】：配置 OpenGL 的背景为透明，否则小猫背后会是个大黑框！
+        format = self.format()
+        format.setAlphaBufferSize(8)
+        self.setFormat(format)
+        self.setAttribute(Qt.WA_AlwaysStackOnTop)
+        self.setAttribute(Qt.WA_TranslucentBackground)
 
-        original_size = self._movie.currentPixmap().size()
-        self._scaled_size = QSize(
-            int(original_size.width() * self._scale_factor),
-            int(original_size.height() * self._scale_factor)
-        )
+        # 👉 创建一个 60 帧的“心脏起搏器”，让画面动起来
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update)
+        self.timer.start(1000 // 60)  # 约 16ms 刷新一次 (60 FPS)
 
-        self._movie.frameChanged.connect(self.update)
-        super().setMovie(self._movie)
-        self.setFixedSize(self._scaled_size)
+    def initializeGL(self):
+        # 初始化 Live2D 环境
+        live2d.init()
+        live2d.glInit()
 
-    def get_scaled_size(self):
-        return self._scaled_size
+        try:
+            self.model = live2d.LAppModel()
+            self.model.LoadModelJson(self.model_json_path)
+            print("🎉 Live2D 模型加载成功！")
+        except Exception as e:
+            print(f"❌ 模型加载失败，是不是路径不对？错误信息：{e}")
 
-    def paintEvent(self, event):
-        if not self._movie or not self._movie.isValid():
-            return super().paintEvent(event)
+    def resizeGL(self, w, h):
+        if self.model:
+            self.model.Resize(w, h)
 
-        current_pixmap = self._movie.currentPixmap()
-        if current_pixmap.isNull():
-            return
+    def paintGL(self):
+        # 清空上一帧的画面，保持背景透明
+        live2d.clearBuffer()
 
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-
-        scaled_pixmap = current_pixmap.scaled(
-            self._scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-        painter.drawPixmap(0, 0, scaled_pixmap)
-        painter.end()
+        if self.model:
+            # 更新物理参数 (让头发和欧派随风飘动)
+            self.model.Update()
+            # 把模型画到屏幕上
+            self.model.Draw()
 
 class FloatingBubble(QWidget):
-    """悬浮双态气泡：上方显示你的问题，下方显示小猫的回答"""
     text_submitted = Signal(str)
 
     def __init__(self, parent=None):
