@@ -20,7 +20,11 @@ class TTSWorker(QThread):
         self.config = config
 
     def run(self):
-        clean_text = re.sub(r'\*.*?\*', '', self.text).strip()
+        if not self.text:
+            print("🈳 没收到要说的话，发声车间罢工了~")
+            return
+        safe_text = str(self.text)
+        clean_text = re.sub(r'\*.*?\*', '', safe_text).strip()
         if not clean_text:
             return
 

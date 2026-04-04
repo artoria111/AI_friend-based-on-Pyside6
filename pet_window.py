@@ -18,7 +18,7 @@ class ImageWindow(QMainWindow):
     def __init__(self, config,scale_factor=0.3):
         super().__init__()
         self.setWindowTitle("MyDesktopPet")
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window| Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.config = config
 
@@ -79,7 +79,7 @@ class ImageWindow(QMainWindow):
 
     def speak_text(self, text):
         """触发配音并播放"""
-        self.tts_worker = TTSWorker(text,self.config,engine=self.tts_engine)
+        self.tts_worker = TTSWorker(self.config,text,engine=self.tts_engine)
         self.tts_worker.finished.connect(self.play_voice)
         self.tts_worker.start()
 
@@ -157,7 +157,8 @@ class ImageWindow(QMainWindow):
 
     def update_bubble_position(self):
         pet_rect = self.frameGeometry()
-        bubble_x = pet_rect.left()+self.config['bubble']['bubble_x']
+        anchor_right = pet_rect.center().x() - 20
+        bubble_x = anchor_right+self.config['bubble']['bubble_x']
         bubble_y = pet_rect.top()+self.config['bubble']['bubble_y']
         self.bubble.move(bubble_x, bubble_y)
 
@@ -217,7 +218,7 @@ class ImageWindow(QMainWindow):
         if len(self.chat_memory) > 21:
             self.chat_memory = [self.chat_memory[0]] + self.chat_memory[-20:]
         self.save_memory()
-        worker = LLMWorker(self.chat_memory)
+        worker = LLMWorker(self.chat_memory,self.config)
 
 
         def on_llm_response(reply):

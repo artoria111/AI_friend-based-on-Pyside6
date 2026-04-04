@@ -71,6 +71,7 @@ class Live2DWidget(QOpenGLWidget):
         if self.model:
             self.model.StartRandomMotion(motion_group, 3)
 
+
 class FloatingBubble(QWidget):
     text_submitted = Signal(str)
 
