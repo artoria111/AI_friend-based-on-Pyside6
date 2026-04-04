@@ -3,7 +3,6 @@ import glob
 import json
 import os
 import random
-import sys
 import soundfile as sf
 import numpy as np
 
@@ -12,15 +11,16 @@ from PySide6.QtGui import  QAction, QContextMenuEvent, QMouseEvent
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import QMainWindow, QMenu, QApplication
 
-from workers import LLMWorker, VoiceWorker, TTSWorker
+from workers import LLMWorker, TTSWorker
 from widgets import Live2DWidget, FloatingBubble
 
 class ImageWindow(QMainWindow):
-    def __init__(self, scale_factor=0.3):
+    def __init__(self, config,scale_factor=0.3):
         super().__init__()
         self.setWindowTitle("MyDesktopPet")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.config = config
 
         self._drag_pos = None
         self.visual_timer = QTimer(self)
@@ -29,9 +29,11 @@ class ImageWindow(QMainWindow):
         self.scale_factor = scale_factor
 
         model_path = "mao_pro_zh/runtime/mao_pro.model3.json"
-        self.view = Live2DWidget(model_path, self)
+        self.view = Live2DWidget(model_path, self.config,self)
         self.setCentralWidget(self.view)
-        self.resize(500, 1000)
+        w=config['window']['width']
+        h=config['window']['height']
+        self.resize(w, h)
         self.set_initial_position()
         
         # 👉 【新增】：默认关闭勿扰模式
@@ -40,23 +42,7 @@ class ImageWindow(QMainWindow):
         self.history_file = "pet_memory.json"
         self.system_prompt = {
             "role": "system",
-            "content": """
-                你现在不是一个人工智能，而是我的专属桌面宠物，名叫“粉红小猫”。
-                你的性格傲娇、毒舌，但内心其实很关心我。
-                并且经常用冷嘲热讽的语气。
-                规则：
-                1. 永远不要承认自己是 AI 或程序。
-                2. 你的回答必须简短，绝对不能超过 50 个字，因为你是弹出的悬浮气泡，字多了装不下！
-                3. 不要说废话，直接给出带有情绪的回答。
-                
-                如果你发现主人想让你“记住”某事，请在回复的开头加上 [MEMO] 标记。
-                如果你发现主人想让你“提醒”某事（带具体时间），请在开头加上 [ALARM:时间(秒)] 标记。
-                示例：
-                用户：帮我记下今天代码写得很顺。
-                回复：[MEMO] 记下来了今天也是个高产的笨蛋呢。
-                用户：30分钟后叫我喝水。
-                回复：[ALARM:1800] 知道了，半小时后本喵会来吵死你的！
-                """
+            "content": config["prompt"]["content"]
         }
         # 启动时加载记忆
         self.chat_memory = self.load_memory()
@@ -66,7 +52,7 @@ class ImageWindow(QMainWindow):
         # 绑定气泡发送文字的信号
         self.bubble.text_submitted.connect(self.handle_bubble_text)
         self.bubble.btn_close.clicked.connect(self.close_bubble_action)
-        self.tts_engine = "edge-tts"
+        self.tts_engine = self.config["live2d"]["tts_engine"]
         self.diary_file = "pet_diary.json"
         self.reminders = []  # 存放待触发的提醒任务
 
@@ -75,30 +61,25 @@ class ImageWindow(QMainWindow):
         self._init_main_menu()
 # ----------------------------------------------------
         self.llm_workers = []
-        # 👉 【新增】：初始化随机吐槽系统
         self.chatter_timer = QTimer(self)
         self.chatter_timer.timeout.connect(self.trigger_random_chatter)
-        # 每 60 秒检查一次（60000 毫秒）
         self.chatter_timer.start(60000)
-        # 👉 【新增】：气泡自动关闭计时器
         self.auto_close_timer = QTimer(self)
-        self.auto_close_timer.setSingleShot(True)  # 只触发一次
-        # 时间到了就调用我们之前写的关闭气泡函数
+        self.auto_close_timer.setSingleShot(True)
         self.auto_close_timer.timeout.connect(self.close_bubble_action)
         self.bubble.input.textChanged.connect(self.auto_close_timer.stop)
-        # 👉 【新增】：初始化发声器官（音频播放器）
         self.player = QMediaPlayer()
         self.audio_output = QAudioOutput()
         self.player.setAudioOutput(self.audio_output)
-        self.audio_output.setVolume(1.0)  # 音量拉满！
-        self.current_audio_file = None  # 记录当前播放的文件
+        self.audio_output.setVolume(config["live2d"]["volume"])
+        self.current_audio_file = None
         self.volume_data = [] 
         self.lip_sync_timer = QTimer(self)
         self.lip_sync_timer.timeout.connect(self.update_lip_sync)
 
     def speak_text(self, text):
         """触发配音并播放"""
-        self.tts_worker = TTSWorker(text,engine=self.tts_engine)
+        self.tts_worker = TTSWorker(text,self.config,engine=self.tts_engine)
         self.tts_worker.finished.connect(self.play_voice)
         self.tts_worker.start()
 
@@ -120,7 +101,6 @@ class ImageWindow(QMainWindow):
         self.player.play()
 
     def get_active_window_title(self):
-        """底层方法：获取当前正在操作的窗口标题（仅限 Windows）"""
         try:
             hwnd = ctypes.windll.user32.GetForegroundWindow()
             length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
@@ -133,7 +113,7 @@ class ImageWindow(QMainWindow):
     def trigger_random_chatter(self):
         if getattr(self, 'dnd_mode', False):
             return
-        if random.random() > 1:
+        if random.random() > self.config['live2d']['random_chatter']:
             return
         if self.bubble.isVisible():
             return
@@ -155,9 +135,9 @@ class ImageWindow(QMainWindow):
 
         print(f"捕捉到当前窗口信息：{window_title}")
         secret_prompt = (f"【系统内部指令，无需回复此提示】我当前正在操作的屏幕窗口标题"
-                         f"是：'{window_title}'。请根据这个窗口的名字，用你的傲娇毒舌人设，"
+                         f"是：'{window_title}'。请根据这个窗口的名字，用你的人设，"
                          f"主动弹出来吐槽我一句。字数严格控制在20字以内！直接说吐槽的话！")
-        temp_worker = LLMWorker(secret_prompt)
+        temp_worker = LLMWorker(secret_prompt,self.config)
 
         def on_chatter_response(reply):
             self.bubble.show_text(reply, user_text="")
@@ -177,8 +157,8 @@ class ImageWindow(QMainWindow):
 
     def update_bubble_position(self):
         pet_rect = self.frameGeometry()
-        bubble_x = pet_rect.left()-100
-        bubble_y = pet_rect.top()+350
+        bubble_x = pet_rect.left()+self.config['bubble']['bubble_x']
+        bubble_y = pet_rect.top()+self.config['bubble']['bubble_y']
         self.bubble.move(bubble_x, bubble_y)
 
     def _init_main_menu(self):
@@ -212,9 +192,9 @@ class ImageWindow(QMainWindow):
             self.action_dnd.setChecked(self.dnd_mode)
 
         if self.dnd_mode:
-            self.bubble.show_text("开启专注模式！本喵闭嘴就是了，哼！", user_text="")
+            self.bubble.show_text("开启专注模式！我闭嘴就是了，哼！", user_text="")
         else:
-            self.bubble.show_text("勿扰解除！你又可以挨本喵的骂了喵~", user_text="")
+            self.bubble.show_text("勿扰解除！我又回来了", user_text="")
 
         self.update_bubble_position()
 
@@ -224,7 +204,7 @@ class ImageWindow(QMainWindow):
     def clear_memory(self):
         self.chat_memory = [self.system_prompt]
         self.save_memory()
-        self.bubble.show_text("叮~ 记忆已格式化！刚才发生了什么？本喵突然什么都不记得了！", user_text=None)
+        self.bubble.show_text("叮~ 记忆已格式化！刚才发生了什么？我突然什么都不记得了！", user_text=None)
         self.update_bubble_position()
 
     def input_dialog(self):
@@ -313,25 +293,21 @@ class ImageWindow(QMainWindow):
             self.bubble.hide()
 
     def load_memory(self):
-        """开机加载上一辈子的记忆"""
         if os.path.exists(self.history_file):
             try:
                 with open(self.history_file, "r", encoding="utf-8") as f:
                     memory = json.load(f)
-                    # 确保第一条永远是人设词（防止人设被篡改）
                     if memory and memory[0].get("role") == "system":
                         memory[0] = self.system_prompt
                     else:
                         memory.insert(0, self.system_prompt)
                     return memory
             except Exception as e:
-                print(f"记忆损坏了喵：{e}")
+                print(f"记忆损坏了：{e}")
 
-        # 如果是第一次运行，或者文件坏了，就给个出厂设置
         return [self.system_prompt]
 
     def save_memory(self):
-        """把记忆写进硬盘"""
         with open(self.history_file, "w", encoding="utf-8") as f:
             # indent=4 让存下来的 json 文件也能被人看懂
             json.dump(self.chat_memory, f, ensure_ascii=False, indent=4)
@@ -371,8 +347,6 @@ class ImageWindow(QMainWindow):
         import datetime
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         entry = {"time": timestamp, "content": content}
-
-        # 读取并追加
         diary_data = []
         if os.path.exists(self.diary_file):
             with open(self.diary_file, "r", encoding="utf-8") as f:
@@ -387,9 +361,9 @@ class ImageWindow(QMainWindow):
         screen = QApplication.primaryScreen().geometry()
         self.move(screen.center() - self.rect().center())
 
-        reminder_text = f"喂！笨蛋！时间到了！该去‘{msg}’了喵！快去，不然本喵一直盯着你！"
+        reminder_text = f"时间到了！该去‘{msg}’了！我会一直盯着你的>_<"
         self.bubble.show_text(reminder_text, user_text="")
-        self.bubble.btn_close.hide()  # 藏起关闭按钮
+        self.bubble.btn_close.hide()
 
         self.bubble.input.setPlaceholderText("输入‘我知道了’解除霸屏...")
 
@@ -397,16 +371,12 @@ class ImageWindow(QMainWindow):
         screen_geo = QApplication.primaryScreen().availableGeometry()
         pet_width = self.width()
         pet_height = self.height()
-        margin_x = 50
-        margin_y = -300
-        target_x = screen_geo.width() - margin_x-pet_width
-        target_y = screen_geo.height() - margin_y-pet_height
+        target_x = screen_geo.width() - self.config['window']['margin_x']-pet_width
+        target_y = screen_geo.height() - self.config['window']['margin_y']-pet_height
         self.move(target_x, target_y)
 
     def analyze_audio_volume(self, audio_path):
-        """极其强悍的音频解析器 (支持所有格式)"""
         try:
-            # sf.read 会直接把音频读取为 numpy 数组，彻底无视格式差异！
             data, samplerate = sf.read(audio_path)
 
             # 如果是双声道音频，我们只取其中一个声道来计算
@@ -432,7 +402,7 @@ class ImageWindow(QMainWindow):
             return volumes
 
         except Exception as e:
-            print(f"❌ 强悍解析器也失败了，格式绝对有问题: {e}")
+            print(f"❌ 强悍解析器也失败了，格式有问题: {e}")
             return []
 
     def update_lip_sync(self):

@@ -1,5 +1,3 @@
-from PySide6.QtCore import QSize
-from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QHBoxLayout, QPushButton,QWidget, QLabel, QLineEdit, QVBoxLayout, QSizePolicy
 from PySide6.QtCore import Signal, Qt,QTimer
 import live2d.v3 as live2d
@@ -18,8 +16,9 @@ MODERN_STYLE_QSS = """
 """
 
 class Live2DWidget(QOpenGLWidget):
-    def __init__(self, model_json_path, parent=None):
+    def __init__(self, model_json_path, config,parent=None):
         super().__init__(parent)
+        self.config = config
         self.model_json_path = model_json_path
         self.model = None
 
@@ -54,8 +53,8 @@ class Live2DWidget(QOpenGLWidget):
             self.model.Resize(w, h)
 
         try:
-            self.model.SetScale(0.8)
-            self.model.SetOffset(0.0, -0.2)
+            self.model.SetScale(self.config["live2d"]["scale"])
+            self.model.SetOffset(self.config["live2d"]["offset_x"], self.config["live2d"]["offset_y"])
         except Exception as e:
             print(f"视角微调失败: {e}")
 
@@ -155,14 +154,11 @@ class FloatingBubble(QWidget):
         self.hide()
 
     def start_voice_input(self):
-        """点击麦克风，开始竖起耳朵"""
         # 1. 改变界面状态，提示正在录音
         self.input.clear()
         self.input.setPlaceholderText("竖起耳朵聆听中...")
         self.btn_voice.setEnabled(False)  # 防止狂点录音
         self.btn_voice.setStyleSheet("background-color: #FFB6C1; border-radius: 18px; color: white;")
-
-        # 2. 召唤听写打工人
         self.voice_worker = VoiceWorker()
 
         def on_voice_success(text):
@@ -179,7 +175,6 @@ class FloatingBubble(QWidget):
         self.voice_worker.start()
 
     def reset_voice_ui(self):
-        """恢复输入框和按钮的原始状态"""
         self.input.setPlaceholderText("对我说点什么...")
         self.btn_voice.setEnabled(True)
         self.btn_voice.setStyleSheet("""
@@ -195,7 +190,6 @@ class FloatingBubble(QWidget):
             self.show_text("小脑袋转动中...", user_text=text)
 
     def show_input(self):
-        """唤醒气泡：保持之前的聊天记录不变，只聚焦输入框"""
         self.input.show()
         self.show()
         self.adjustSize()

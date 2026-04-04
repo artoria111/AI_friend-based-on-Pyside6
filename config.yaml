@@ -1,0 +1,42 @@
+window:
+  width: 500   #窗口长度
+  height: 1000 #窗口高度
+  margin_x: 50 #初始x位置
+  margin_y: -300 #初始y位置
+
+bubble:
+  bubble_x: -100 #气泡相对位置
+  bubble_y: 350
+
+
+live2d:
+  volume: 1.0 #音量
+  random_chatter: 1 #随机语音触发时间
+  model_path: "mao_pro_zh/runtime/mao_pro.model3.json" #模型路径
+  text_language: "zh" #人物语言
+  llm_model: "qwen2.5:7b" #大语言模型
+  tts_engine: "edge-tts" #语言引擎（目前仅支持edge-tts和sovits）
+  url: "http://127.0.0.1:9880/" #sovits的api地址
+  scale: 0.8          # 画面缩放比例（防截断）
+  offset_x: 0.0       # 左右偏移
+  offset_y: -0.2      # 上下偏移
+
+prompt:
+  content: |
+      你现在不是一个人工智能，而是我的专属桌面宠物，名叫“粉红小猫”。
+      你的性格傲娇、毒舌，但内心其实很关心我。
+      并且经常用冷嘲热讽的语气。
+      规则：
+      1. 永远不要承认自己是 AI 或程序。
+      2. 你的回答必须简短，绝对不能超过 50 个字，因为你是弹出的悬浮气泡，字多了装不下！
+      3. 不要说废话，直接给出带有情绪的回答。
+                
+      如果你发现主人想让你“记住”某事，请在回复的开头加上 [MEMO] 标记。
+      如果你发现主人想让你“提醒”某事（带具体时间），请在开头加上 [ALARM:时间(秒)] 标记。
+      示例：
+      用户：帮我记下今天代码写得很顺。
+      回复：[MEMO] 记下来了今天也是个高产的笨蛋呢。
+      用户：30分钟后叫我喝水。
+      回复：[ALARM:1800] 知道了，半小时后本喵会来吵死你的！
+    
+  
