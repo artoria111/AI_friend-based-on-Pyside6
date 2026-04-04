@@ -18,8 +18,6 @@ MODERN_STYLE_QSS = """
 """
 
 class Live2DWidget(QOpenGLWidget):
-    """专属的 Live2D 实时渲染画布"""
-
     def __init__(self, model_json_path, parent=None):
         super().__init__(parent)
         self.model_json_path = model_json_path
@@ -36,6 +34,7 @@ class Live2DWidget(QOpenGLWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update)
         self.timer.start(1000 // 60)  # 约 16ms 刷新一次 (60 FPS)
+        self.mouth_open = 0.0
 
     def initializeGL(self):
         # 初始化 Live2D 环境
@@ -45,7 +44,8 @@ class Live2DWidget(QOpenGLWidget):
         try:
             self.model = live2d.LAppModel()
             self.model.LoadModelJson(self.model_json_path)
-            print("🎉 Live2D 模型加载成功！")
+            self.model.StartRandomMotion("Idle", 3)
+            print("Live2D 模型加载成功！")
         except Exception as e:
             print(f"❌ 模型加载失败，是不是路径不对？错误信息：{e}")
 
@@ -53,15 +53,24 @@ class Live2DWidget(QOpenGLWidget):
         if self.model:
             self.model.Resize(w, h)
 
-    def paintGL(self):
-        # 清空上一帧的画面，保持背景透明
-        live2d.clearBuffer()
+        try:
+            self.model.SetScale(0.8)
+            self.model.SetOffset(0.0, -0.2)
+        except Exception as e:
+            print(f"视角微调失败: {e}")
 
+
+    def paintGL(self):
+        live2d.clearBuffer()
         if self.model:
-            # 更新物理参数 (让头发和欧派随风飘动)
             self.model.Update()
-            # 把模型画到屏幕上
+            if self.mouth_open > 0:
+                self.model.SetParameterValue("ParamA", self.mouth_open)
             self.model.Draw()
+
+    def trigger_action(self, motion_group="TapBody"):
+        if self.model:
+            self.model.StartRandomMotion(motion_group, 3)
 
 class FloatingBubble(QWidget):
     text_submitted = Signal(str)
@@ -72,7 +81,6 @@ class FloatingBubble(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.container = QWidget(self)
-        # 👉 【优化】：给容器命名，防止外框样式污染到里面的文字
         self.container.setObjectName("BubbleContainer")
         self.container.setStyleSheet("""
             #BubbleContainer {
@@ -92,9 +100,7 @@ class FloatingBubble(QWidget):
 
         layout = QVBoxLayout(self.container)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(4)  # 缩小两行文字的间距
-
-        # 👉 【新增】：顶部横向布局（左边放你的话，右边放关闭按钮）
+        layout.setSpacing(4)
         top_layout = QHBoxLayout()
         top_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -110,18 +116,14 @@ class FloatingBubble(QWidget):
                     QPushButton { border: none; color: #9CA3AF; font-size: 14px; font-weight: bold; background: transparent; }
                     QPushButton:hover { color: #EF4444; } /* 鼠标移上去变红色 */
                 """)
-        # 把文字和按钮放进顶部布局
         top_layout.addWidget(self.user_label)
-        top_layout.addStretch()  # 放个弹簧，把关闭按钮挤到最右边
+        top_layout.addStretch()
         top_layout.addWidget(self.btn_close, 0, Qt.AlignTop)
-        # 👉 用来显示小猫的回答
         self.ai_label = QLabel("")
         self.ai_label.setWordWrap(True)
         self.ai_label.setStyleSheet(
             "color: #111827; font-size: 14px; font-weight: bold; border: none; background: transparent;")
         self.ai_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
-
-        # 👉 【新增】：输入区域的横向布局（左边输入框，右边语音按钮）
         input_layout = QHBoxLayout()
         input_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -200,8 +202,6 @@ class FloatingBubble(QWidget):
         self.input.setFocus()  # 自动聚焦，直接打字
 
     def show_text(self, ai_text, user_text=None):
-        """进入【展示形态】：上方聊天记录，下方保留输入框！"""
-        # 👉 【关键修复】：绝对不要隐藏输入框！让它常驻！
         self.input.show()
 
         # 测量你的文字宽度
@@ -213,25 +213,17 @@ class FloatingBubble(QWidget):
         else:
             user_width = 0
 
-        # 测量 AI 的文字宽度
         self.ai_label.setText(ai_text)
         self.ai_label.show()
         fm_ai = self.ai_label.fontMetrics()
         ai_width = fm_ai.horizontalAdvance(ai_text) + 20
-
-        # 动态计算：最小宽度给到 200，保证输入框不会太短没法打字
         final_width = min(max(user_width, ai_width, 200), 300)
-
-        # 统一锁定所有组件的宽度，让它们上下对齐，非常整齐
         self.user_label.setMinimumWidth(final_width)
         self.user_label.setMaximumWidth(final_width)
         self.ai_label.setMinimumWidth(final_width)
         self.ai_label.setMaximumWidth(final_width)
-
-        # 👉 让输入框的宽度也跟随文字框，保持视觉上的绝对对齐
         self.input.setMinimumWidth(final_width)
         self.input.setMaximumWidth(final_width)
-
         self.show()
         self.user_label.adjustSize()
         self.ai_label.adjustSize()

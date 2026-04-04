@@ -52,10 +52,10 @@ class TTSWorker(QThread):
             }
             response = requests.post(url, json=payload)
             response.raise_for_status()  # 检查有没有报错
-            with open(self.output_file, "wb") as f:
+            with open(output_file, "wb") as f:
                 f.write(response.content)
 
-            self.finished.emit(self.output_file)
+            self.finished.emit(output_file)
         except requests.exceptions.ConnectionError:
             print("\n❌ SoVITS 后台没开！本喵成了小哑巴")
         except Exception as e:
@@ -68,15 +68,10 @@ class VoiceWorker(QThread):
 
     def run(self):
         recognizer = sr.Recognizer()
-        # 麦克风准备就绪
         with sr.Microphone() as source:
             try:
-                # 自动适应一下你房间的环境底噪（0.5秒）
                 recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                # 开始录音，最多等你 5 秒开口，单次最多录 10 秒
                 audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-
-                # 调用免费的在线识别引擎（默认 Google），指定中文
                 text = recognizer.recognize_google(audio, language='zh-CN')
                 self.finished.emit(text)
 

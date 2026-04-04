@@ -4,6 +4,8 @@ import json
 import os
 import random
 import sys
+import soundfile as sf
+import numpy as np
 
 from PySide6.QtCore import QTimer, Qt, QUrl
 from PySide6.QtGui import  QAction, QContextMenuEvent, QMouseEvent
@@ -14,7 +16,7 @@ from workers import LLMWorker, VoiceWorker, TTSWorker
 from widgets import Live2DWidget, FloatingBubble
 
 class ImageWindow(QMainWindow):
-    def __init__(self, idle_gif_path, drag_gif_path, chat_git_path,scale_factor=0.3):
+    def __init__(self, scale_factor=0.3):
         super().__init__()
         self.setWindowTitle("MyDesktopPet")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
@@ -29,8 +31,9 @@ class ImageWindow(QMainWindow):
         model_path = "mao_pro_zh/runtime/mao_pro.model3.json"
         self.view = Live2DWidget(model_path, self)
         self.setCentralWidget(self.view)
-        self.resize(400, 1000)
-
+        self.resize(500, 1000)
+        self.set_initial_position()
+        
         # 👉 【新增】：默认关闭勿扰模式
         self.dnd_mode = False
 
@@ -40,7 +43,7 @@ class ImageWindow(QMainWindow):
             "content": """
                 你现在不是一个人工智能，而是我的专属桌面宠物，名叫“粉红小猫”。
                 你的性格傲娇、毒舌，但内心其实很关心我。
-                你说话要在句末加上“喵~”，并且经常用冷嘲热讽的语气。
+                并且经常用冷嘲热讽的语气。
                 规则：
                 1. 永远不要承认自己是 AI 或程序。
                 2. 你的回答必须简短，绝对不能超过 50 个字，因为你是弹出的悬浮气泡，字多了装不下！
@@ -50,9 +53,9 @@ class ImageWindow(QMainWindow):
                 如果你发现主人想让你“提醒”某事（带具体时间），请在开头加上 [ALARM:时间(秒)] 标记。
                 示例：
                 用户：帮我记下今天代码写得很顺。
-                回复：[MEMO] 记下来了喵！今天也是个高产的笨蛋呢。
+                回复：[MEMO] 记下来了今天也是个高产的笨蛋呢。
                 用户：30分钟后叫我喝水。
-                回复：[ALARM:1800] 知道了喵，半小时后本喵会来吵死你的！
+                回复：[ALARM:1800] 知道了，半小时后本喵会来吵死你的！
                 """
         }
         # 启动时加载记忆
@@ -89,6 +92,9 @@ class ImageWindow(QMainWindow):
         self.player.setAudioOutput(self.audio_output)
         self.audio_output.setVolume(1.0)  # 音量拉满！
         self.current_audio_file = None  # 记录当前播放的文件
+        self.volume_data = [] 
+        self.lip_sync_timer = QTimer(self)
+        self.lip_sync_timer.timeout.connect(self.update_lip_sync)
 
     def speak_text(self, text):
         """触发配音并播放"""
@@ -97,10 +103,12 @@ class ImageWindow(QMainWindow):
         self.tts_worker.start()
 
     def play_voice(self, file_path):
-        """拿到音频文件后立即播放，并清理上一个垃圾文件"""
+        if hasattr(self, 'player'):
+            self.player.setSource(QUrl.fromLocalFile(file_path))
+            self.volume_data = self.analyze_audio_volume(file_path)
+            self.player.play()
+            self.lip_sync_timer.start(33)
         self.player.stop()
-
-        # 为了不占你的硬盘空间，每次播放新声音前，把上一条语音删掉
         if self.current_audio_file and os.path.exists(self.current_audio_file):
             try:
                 os.remove(self.current_audio_file)
@@ -108,7 +116,6 @@ class ImageWindow(QMainWindow):
                 pass
 
         self.current_audio_file = file_path
-        # PySide6 的播放器需要的是 QUrl 格式的本地路径
         self.player.setSource(QUrl.fromLocalFile(file_path))
         self.player.play()
 
@@ -170,8 +177,8 @@ class ImageWindow(QMainWindow):
 
     def update_bubble_position(self):
         pet_rect = self.frameGeometry()
-        bubble_x = pet_rect.right() - 550
-        bubble_y = pet_rect.top() + 250
+        bubble_x = pet_rect.left()-100
+        bubble_y = pet_rect.top()+350
         self.bubble.move(bubble_x, bubble_y)
 
     def _init_main_menu(self):
@@ -253,6 +260,8 @@ class ImageWindow(QMainWindow):
             self.speak_text(display_reply)
             self.update_bubble_position()
             self.auto_close_timer.start(15000)
+            if hasattr(self, 'view'):
+                self.view.trigger_action("")
             self.chat_memory.append({"role": "assistant", "content": reply})
             self.save_memory()
             if worker in self.llm_workers:
@@ -383,3 +392,60 @@ class ImageWindow(QMainWindow):
         self.bubble.btn_close.hide()  # 藏起关闭按钮
 
         self.bubble.input.setPlaceholderText("输入‘我知道了’解除霸屏...")
+
+    def set_initial_position(self):
+        screen_geo = QApplication.primaryScreen().availableGeometry()
+        pet_width = self.width()
+        pet_height = self.height()
+        margin_x = 50
+        margin_y = -300
+        target_x = screen_geo.width() - margin_x-pet_width
+        target_y = screen_geo.height() - margin_y-pet_height
+        self.move(target_x, target_y)
+
+    def analyze_audio_volume(self, audio_path):
+        """极其强悍的音频解析器 (支持所有格式)"""
+        try:
+            # sf.read 会直接把音频读取为 numpy 数组，彻底无视格式差异！
+            data, samplerate = sf.read(audio_path)
+
+            # 如果是双声道音频，我们只取其中一个声道来计算
+            if len(data.shape) > 1:
+                data = data[:, 0]
+
+            # 按 30fps 切片计算均方根 (RMS) 音量
+            chunk_size = samplerate // 30
+            volumes = []
+
+            for i in range(0, len(data), chunk_size):
+                chunk = data[i:i + chunk_size]
+                # 计算这段时间的平均音量大小
+                rms = np.sqrt(np.mean(chunk ** 2))
+                volumes.append(float(rms))
+
+            # 归一化：把最大音量变成 1.0
+            if volumes:
+                max_vol = max(volumes)
+                if max_vol > 0:
+                    volumes = [v / max_vol for v in volumes]
+
+            return volumes
+
+        except Exception as e:
+            print(f"❌ 强悍解析器也失败了，格式绝对有问题: {e}")
+            return []
+
+    def update_lip_sync(self):
+        if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            current_time_ms = self.player.position()
+            chunk_index = int(current_time_ms / (1000 / 30))
+
+            if chunk_index < len(self.volume_data):
+                volume = self.volume_data[chunk_index]
+                mouth_open = min(volume * 2.0, 1.0)
+                if hasattr(self, 'view'):
+                    self.view.mouth_open = mouth_open
+        else:
+            self.lip_sync_timer.stop()
+            if hasattr(self, 'view'):
+                self.view.mouth_open = 0.0
