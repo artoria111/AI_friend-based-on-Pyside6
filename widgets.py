@@ -74,10 +74,11 @@ class Live2DWidget(QOpenGLWidget):
 
 class FloatingBubble(QWidget):
     text_submitted = Signal(str)
-
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.is_recording = False
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.container = QWidget(self)
@@ -131,6 +132,7 @@ class FloatingBubble(QWidget):
         self.input.setPlaceholderText("对我说点什么...")
         self.input.returnPressed.connect(self.on_submit)
 
+        self.voice_worker = None
         self.btn_voice = QPushButton("🎤")
         self.btn_voice.setFixedSize(36, 36)
         self.btn_voice.setCursor(Qt.PointingHandCursor)
@@ -151,11 +153,8 @@ class FloatingBubble(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(self.container)
 
-
-        self.hide()
-
     def start_voice_input(self):
-        # 1. 改变界面状态，提示正在录音
+        self.is_recording = True
         self.input.clear()
         self.input.setPlaceholderText("竖起耳朵聆听中...")
         self.btn_voice.setEnabled(False)  # 防止狂点录音
@@ -164,8 +163,8 @@ class FloatingBubble(QWidget):
 
         def on_voice_success(text):
             self.reset_voice_ui()
-            self.input.setText(text)  # 把听到的话填进输入框
-            self.on_submit()  # 👉 直接自动帮你按下回车发送！
+            self.input.setText(text)
+            self.on_submit()
 
         def on_voice_error(err_msg):
             self.reset_voice_ui()
@@ -176,6 +175,7 @@ class FloatingBubble(QWidget):
         self.voice_worker.start()
 
     def reset_voice_ui(self):
+        self.is_recording = False
         self.input.setPlaceholderText("对我说点什么...")
         self.btn_voice.setEnabled(True)
         self.btn_voice.setStyleSheet("""
@@ -198,8 +198,6 @@ class FloatingBubble(QWidget):
 
     def show_text(self, ai_text, user_text=None):
         self.input.show()
-
-        # 测量你的文字宽度
         if user_text:
             self.user_label.setText(f"你: {user_text}")
             self.user_label.show()
@@ -224,3 +222,4 @@ class FloatingBubble(QWidget):
         self.ai_label.adjustSize()
         self.container.adjustSize()
         self.adjustSize()
+

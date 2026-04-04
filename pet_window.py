@@ -1,5 +1,4 @@
 import ctypes
-import glob
 import json
 import os
 import random
@@ -17,10 +16,13 @@ from widgets import Live2DWidget, FloatingBubble
 class ImageWindow(QMainWindow):
     def __init__(self, config,scale_factor=0.3):
         super().__init__()
-        self.setWindowTitle("MyDesktopPet")
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window| Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
         self.config = config
+        self.setWindowTitle("MyDesktopPet")
+        if self.config["live2d"]["on_top_table"]:
+            self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        else:
+            self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
 
         self._drag_pos = None
         self.visual_timer = QTimer(self)
@@ -152,6 +154,9 @@ class ImageWindow(QMainWindow):
         temp_worker.start()
 
     def close_bubble_action(self):
+        if getattr(self.bubble, 'is_recording', False):
+            print("[拦截] 正在录音，已阻止气泡隐藏！")
+            return
         self.bubble.hide()
 
 
@@ -214,6 +219,7 @@ class ImageWindow(QMainWindow):
         self.auto_close_timer.stop()
 
     def handle_bubble_text(self, text):
+        self.auto_close_timer.stop()
         self.chat_memory.append({"role": "user", "content": text})
         if len(self.chat_memory) > 21:
             self.chat_memory = [self.chat_memory[0]] + self.chat_memory[-20:]
@@ -314,24 +320,26 @@ class ImageWindow(QMainWindow):
             json.dump(self.chat_memory, f, ensure_ascii=False, indent=4)
 
     def closeEvent(self, event):
+        print("正在退出...")
         if hasattr(self, 'player'):
             self.player.stop()
             self.player.setSource(QUrl())
-
+        import glob
         temp_files = glob.glob("temp_voice_*.*")
-
-        # 3. 无情销毁！
         for file in temp_files:
             try:
                 os.remove(file)
                 print(f"[保洁] 已清理: {file}")
-            except Exception as e:
+            except Exception:
                 pass
 
         if hasattr(self, 'save_memory'):
             self.save_memory()
-
+        if hasattr(self, 'lip_sync_timer') and self.lip_sync_timer.isActive():
+            self.lip_sync_timer.stop()
         event.accept()
+        print("✅ 画面已销毁")
+        os._exit(0)
 
     def toggle_tts_engine(self):
         if self.tts_engine == "edge-tts":
@@ -408,6 +416,8 @@ class ImageWindow(QMainWindow):
 
     def update_lip_sync(self):
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            if hasattr(self, 'auto_close_timer') :
+                self.auto_close_timer.start(3000)
             current_time_ms = self.player.position()
             chunk_index = int(current_time_ms / (1000 / 30))
 

@@ -84,6 +84,7 @@ class VoiceWorker(QThread):
             except sr.UnknownValueError:
                 self.error.emit("嘟囔什么呢，大点声！")
             except Exception as e:
+                print(f"Error: {repr(e)}")
                 self.error.emit(f"耳朵坏掉了喵：{str(e)}")
 
 class LLMWorker(QThread):
