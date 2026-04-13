@@ -21,6 +21,7 @@ live2d:
   offset_x: 0.2       # 左右偏移
   offset_y: 0      # 上下偏移
   on_top_table: true  # 位于桌面最上层
+  ico_path: "ico/1.ico"
 
 prompt:
   content: |

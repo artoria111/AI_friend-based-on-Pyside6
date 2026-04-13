@@ -46,7 +46,7 @@ ollama run qwen2.5:7b
 qwen2.5为默认模型，可以使用其他模型（修改config.yaml中的模型即可）
 
 ### 3.准备Live2D模型
-将你的 Live2D 运行时模型文件夹（需包含 .model3.json, .moc3 等文件）放置在项目根目录下。
+将你的 Live2D 运行时模型文件夹（需包含 .model3.json, .moc3 等文件）放置在model目录下。
 
 打开 config.yaml，修改 live2d.model_path 指向你的模型配置文件。
 

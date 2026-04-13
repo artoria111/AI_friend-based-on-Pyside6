@@ -438,7 +438,7 @@ class ImageWindow(QMainWindow):
 
     def _init_tray_icon(self):
         self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon("ico/1.ico"))
+        self.tray_icon.setIcon(QIcon(self.config["live2d"]["ico_path"]))
 
         tray_menu = QMenu()
         self.action_toggle_visibility = QAction("✨ 显示/隐藏", self)
