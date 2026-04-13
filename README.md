@@ -39,6 +39,11 @@ uv sync
 #或者
 uv pip install -r requirements.txt
 ```
+使用ollama来本地部署大模型(如果没有ollama请去官网下载)
+```bash
+ollama run qwen2.5:7b
+```
+qwen2.5为默认模型，可以使用其他模型（修改config.yaml中的模型即可）
 
 ### 3.准备Live2D模型
 将你的 Live2D 运行时模型文件夹（需包含 .model3.json, .moc3 等文件）放置在项目根目录下。
@@ -50,13 +55,13 @@ uv pip install -r requirements.txt
 ```bash
 python main.py
 ```
-如果你部署了GPT-SoVITS，请将config.yaml中的live2d.tts_engine修改为sovits
+如果你部署了GPT-SoVITS，请将config.yaml中的live2d.tts_engine修改为sovits，并确保sovits的api已开启
 
 注意：如果你修改过config.yaml，请你重启她
 ## 🎮 互动指南 
 1.唤醒与拖拽：鼠标左键按住身体可自由拖拽位置,默认生成位置为屏幕右下角（可在config.yaml中更改）
 
-2.右击加载好的live2d可以弹出菜单栏
+2.菜单互动：右击加载好的live2d可以弹出菜单栏
 
 3.语音聊天：点击气泡上的麦克风按钮输入文字（或语音），等待她回复并开口说话。
 

@@ -7,7 +7,11 @@ import edge_tts
 import requests
 from PySide6.QtCore import QThread, Signal
 import speech_recognition as sr
+from faster_whisper import WhisperModel
 
+print("正在将耳朵(Whisper)装载进显存...")
+whisper_model = WhisperModel("small", device="cuda", compute_type="float16")
+print("耳朵装载完毕！")
 
 class TTSWorker(QThread):
     finished = Signal(str)
@@ -66,26 +70,42 @@ class TTSWorker(QThread):
         except Exception as e:
             print(f"\n❌ SoVITS 引擎故障: {e}")
 
+
 class VoiceWorker(QThread):
     finished = Signal(str)
     error = Signal(str)
 
     def run(self):
         recognizer = sr.Recognizer()
+        temp_file = f"temp_record_{int(time.time())}.wav"
+
         with sr.Microphone() as source:
             try:
                 recognizer.adjust_for_ambient_noise(source, duration=0.5)
                 audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-                text = recognizer.recognize_google(audio, language='zh-CN')
-                self.finished.emit(text)
+                with open(temp_file, "wb") as f:
+                    f.write(audio.get_wav_data())
+
+                segments, info = whisper_model.transcribe(temp_file, beam_size=5, language="zh")
+                text = "".join([segment.text for segment in segments]).strip()
+
+                if not text:
+                    self.error.emit("没听到声音喵~")
+                else:
+                    self.finished.emit(text)
 
             except sr.WaitTimeoutError:
                 self.error.emit("怎么不说话？拿我寻开心吗！")
-            except sr.UnknownValueError:
-                self.error.emit("嘟囔什么呢，大点声！")
             except Exception as e:
                 print(f"Error: {repr(e)}")
                 self.error.emit(f"耳朵坏掉了喵：{str(e)}")
+            finally:
+                if os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                        print(f"[保洁] 已清理临时录音文件: {temp_file}")
+                    except Exception as e:
+                        print(f"清理临时录音文件失败: {e}")
 
 class LLMWorker(QThread):
     response_ready = Signal(str)

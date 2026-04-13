@@ -5,7 +5,9 @@ description = "Add your description here"
 requires-python = ">=3.10"
 dependencies = [
     "edge-tts>=7.2.8",
+    "faster-whisper>=1.2.1",
     "live2d-py>=0.6.1.1",
+    "onnxruntime<1.24.0",
     "pyaudio>=0.2.14",
     "pyside6>=6.10.2",
     "pyyaml>=6.0.3",

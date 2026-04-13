@@ -329,7 +329,7 @@ class ImageWindow(QMainWindow):
         for file in temp_files:
             try:
                 os.remove(file)
-                print(f"[保洁] 已清理: {file}")
+                print(f"[保洁] 已清理语音输出文件: {file}")
             except Exception:
                 pass
 
