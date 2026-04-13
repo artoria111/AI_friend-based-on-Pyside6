@@ -6,9 +6,9 @@ import soundfile as sf
 import numpy as np
 
 from PySide6.QtCore import QTimer, Qt, QUrl
-from PySide6.QtGui import  QAction, QContextMenuEvent, QMouseEvent
+from PySide6.QtGui import QAction, QContextMenuEvent, QMouseEvent, QPixmap, QIcon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtWidgets import QMainWindow, QMenu, QApplication
+from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon
 
 from workers import LLMWorker, TTSWorker
 from widgets import Live2DWidget, FloatingBubble
@@ -30,7 +30,7 @@ class ImageWindow(QMainWindow):
         self.visual_timer.timeout.connect(self._enable_drag_visuals)
         self.scale_factor = scale_factor
 
-        model_path = "mao_pro_zh/runtime/mao_pro.model3.json"
+        model_path = config["live2d"]["model_path"]
         self.view = Live2DWidget(model_path, self.config,self)
         self.setCentralWidget(self.view)
         w=config['window']['width']
@@ -78,6 +78,7 @@ class ImageWindow(QMainWindow):
         self.volume_data = [] 
         self.lip_sync_timer = QTimer(self)
         self.lip_sync_timer.timeout.connect(self.update_lip_sync)
+        self._init_tray_icon()
 
     def speak_text(self, text):
         """触发配音并播放"""
@@ -175,7 +176,9 @@ class ImageWindow(QMainWindow):
         self.action_dnd.setCheckable(True)
         action_close = QAction("退出", self)
         self.action_tts=QAction(f"切换语音(当前:{self.tts_engine})",self)
+        self.action_hide = QAction("缩小到托盘", self)
 
+        self.action_hide.triggered.connect(self.toggle_visibility)
         action_input.triggered.connect(self.input_dialog)
         self.action_dnd.triggered.connect(self.toggle_dnd)
         action_close.triggered.connect(self.close)
@@ -188,9 +191,11 @@ class ImageWindow(QMainWindow):
         self.context_menu.addSeparator()
         self.context_menu.addAction(self.action_dnd)
         self.context_menu.addSeparator()
-        self.context_menu.addAction(action_close)
+        self.context_menu.addAction(self.action_hide)
         self.context_menu.addSeparator()
         self.context_menu.addAction(self.action_tts)
+        self.context_menu.addSeparator()
+        self.context_menu.addAction(action_close)
 
     def toggle_dnd(self, checked=False):
         self.dnd_mode = not getattr(self, 'dnd_mode', False)
@@ -430,3 +435,36 @@ class ImageWindow(QMainWindow):
             self.lip_sync_timer.stop()
             if hasattr(self, 'view'):
                 self.view.mouth_open = 0.0
+
+    def _init_tray_icon(self):
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon("ico/1.ico"))
+
+        tray_menu = QMenu()
+        self.action_toggle_visibility = QAction("✨ 显示/隐藏", self)
+        self.action_toggle_visibility.triggered.connect(self.toggle_visibility)
+        action_quit = QAction("❌ 退出", self)
+        action_quit.triggered.connect(self.close)
+
+        tray_menu.addAction(self.action_toggle_visibility)
+        tray_menu.addSeparator()
+        tray_menu.addAction(action_quit)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.show()
+        self.tray_icon.activated.connect(self.on_tray_activated)
+
+    def on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.toggle_visibility()
+
+    def toggle_visibility(self):
+        if self.isHidden():
+            self.show()
+            self.bubble.show_text("我又回来啦！", user_text="")
+            self.update_bubble_position()
+            if hasattr(self, 'auto_close_timer'):
+                self.auto_close_timer.start(5000)
+        else:
+            self.hide()
+            self.bubble.hide()

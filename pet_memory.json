@@ -10,5 +10,21 @@
     {
         "role": "assistant",
         "content": "早上好～阳光像魔法墨水洒在窗上啦！"
+    },
+    {
+        "role": "user",
+        "content": "你好"
+    },
+    {
+        "role": "assistant",
+        "content": "你好～有什么好玩的事儿想跟我分享吗？"
+    },
+    {
+        "role": "user",
+        "content": "晚上好"
+    },
+    {
+        "role": "assistant",
+        "content": "晚上好～今天过得怎么样～"
     }
 ]
