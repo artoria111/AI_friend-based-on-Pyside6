@@ -1,17 +1,65 @@
 import asyncio
 import os
 import re
+import sys
 import time
 
+import av
 import edge_tts
+import numpy as np
 import requests
+import soundfile as sf
 from PySide6.QtCore import QThread, Signal
 import speech_recognition as sr
 from faster_whisper import WhisperModel
 
-print("正在将耳朵(Whisper)装载进显存...")
-whisper_model = WhisperModel("small", device="cuda", compute_type="float16")
-print("耳朵装载完毕！")
+
+def _default_whisper_settings():
+    if sys.platform == "darwin":
+        return {
+            "model": "small",
+            "device": "cpu",
+            "compute_type": "int8",
+        }
+    return {
+        "model": "small",
+        "device": "cuda",
+        "compute_type": "float16",
+    }
+
+
+def _resolve_whisper_settings(config):
+    defaults = _default_whisper_settings()
+    whisper_config = (config or {}).get("whisper", {})
+    return {
+        "model": whisper_config.get("model") or defaults["model"],
+        "device": whisper_config.get("device") or defaults["device"],
+        "compute_type": whisper_config.get("compute_type") or defaults["compute_type"],
+    }
+
+
+_whisper_model = None
+_whisper_settings = None
+
+
+def get_whisper_model(config):
+    global _whisper_model, _whisper_settings
+    settings = _resolve_whisper_settings(config)
+    if _whisper_model is not None and _whisper_settings == settings:
+        return _whisper_model
+
+    print(
+        "正在装载耳朵(Whisper)... "
+        f"model={settings['model']} device={settings['device']} compute_type={settings['compute_type']}"
+    )
+    _whisper_model = WhisperModel(
+        settings["model"],
+        device=settings["device"],
+        compute_type=settings["compute_type"],
+    )
+    _whisper_settings = settings
+    print("耳朵装载完毕！")
+    return _whisper_model
 
 class TTSWorker(QThread):
     finished = Signal(str)
@@ -38,15 +86,58 @@ class TTSWorker(QThread):
             self._run_sovits(clean_text)
 
     def _run_edge_tts(self, text):
-        output_file=f"{self.base_filename}.mp3"
+        mp3_file = f"{self.base_filename}.mp3"
+        output_file = f"{self.base_filename}.wav"
         try:
             async def _generate():
                 tts=edge_tts.Communicate(text,"zh-CN-XiaoyiNeural")
-                await tts.save(output_file)
+                await tts.save(mp3_file)
             asyncio.run(_generate())
+            self._convert_audio_to_wav(mp3_file, output_file)
+            if os.path.exists(mp3_file):
+                os.remove(mp3_file)
             self.finished.emit(output_file)
         except Exception as e:
             print(f"Edge-TTS 引擎故障:{e}")
+
+    def _convert_audio_to_wav(self, input_file, output_file):
+        chunks = []
+        sample_rate = None
+        channels = None
+        try:
+            with av.open(input_file) as container:
+                audio_stream = container.streams.audio[0]
+                sample_rate = audio_stream.rate or 24000
+                channels = audio_stream.channels or 1
+                resampler = av.audio.resampler.AudioResampler(
+                    format="s16",
+                    layout=audio_stream.layout.name if audio_stream.layout else ("mono" if channels == 1 else "stereo"),
+                    rate=sample_rate,
+                )
+
+                for frame in container.decode(audio=0):
+                    resampled = resampler.resample(frame)
+                    if resampled is None:
+                        continue
+                    frames = resampled if isinstance(resampled, list) else [resampled]
+                    for audio_frame in frames:
+                        array = audio_frame.to_ndarray()
+                        if array.ndim == 2:
+                            array = array.T
+                        chunks.append(array)
+
+            if not chunks:
+                raise RuntimeError("音频转换失败：没有解码到任何音频帧")
+
+            audio_data = np.concatenate(chunks, axis=0)
+            sf.write(output_file, audio_data, sample_rate, subtype="PCM_16")
+        except Exception:
+            if os.path.exists(output_file):
+                try:
+                    os.remove(output_file)
+                except Exception:
+                    pass
+            raise
 
     def _run_sovits(self, text):
         output_file=f"{self.base_filename}.wav"
@@ -75,9 +166,14 @@ class VoiceWorker(QThread):
     finished = Signal(str)
     error = Signal(str)
 
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+
     def run(self):
         recognizer = sr.Recognizer()
         temp_file = f"temp_record_{int(time.time())}.wav"
+        whisper_model = get_whisper_model(self.config)
 
         with sr.Microphone() as source:
             try:

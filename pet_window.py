@@ -2,13 +2,16 @@ import ctypes
 import json
 import os
 import random
+import subprocess
+import sys
+import time
 import soundfile as sf
 import numpy as np
 
 from PySide6.QtCore import QTimer, Qt, QUrl
 from PySide6.QtGui import QAction, QContextMenuEvent, QMouseEvent, QPixmap, QIcon
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon
+from PySide6.QtMultimedia import QSoundEffect
+from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon, QStyle
 
 from workers import LLMWorker, TTSWorker
 from widgets import Live2DWidget, FloatingBubble
@@ -25,6 +28,7 @@ class ImageWindow(QMainWindow):
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self._drag_pos = None
+        self.tray_icon = None
         self.visual_timer = QTimer(self)
         self.visual_timer.setSingleShot(True)
         self.visual_timer.timeout.connect(self._enable_drag_visuals)
@@ -50,7 +54,7 @@ class ImageWindow(QMainWindow):
         self.chat_memory = self.load_memory()
 
         # 👉 【新增】：初始化悬浮气泡
-        self.bubble = FloatingBubble()
+        self.bubble = FloatingBubble(config=self.config)
         # 绑定气泡发送文字的信号
         self.bubble.text_submitted.connect(self.handle_bubble_text)
         self.bubble.btn_close.clicked.connect(self.close_bubble_action)
@@ -70,12 +74,18 @@ class ImageWindow(QMainWindow):
         self.auto_close_timer.setSingleShot(True)
         self.auto_close_timer.timeout.connect(self.close_bubble_action)
         self.bubble.input.textChanged.connect(self.auto_close_timer.stop)
-        self.player = QMediaPlayer()
-        self.audio_output = QAudioOutput()
-        self.player.setAudioOutput(self.audio_output)
-        self.audio_output.setVolume(config["live2d"]["volume"])
+        self.sound_effect = QSoundEffect(self)
+        self.sound_effect.setLoopCount(1)
+        self.sound_effect.setVolume(config["live2d"]["volume"])
+        self.sound_effect.statusChanged.connect(self._handle_sound_status_changed)
+        self.sound_effect.playingChanged.connect(self._handle_sound_playing_changed)
         self.current_audio_file = None
-        self.volume_data = [] 
+        self.pending_audio_file = None
+        self.volume_data = []
+        self.audio_started_at = None
+        self.play_called_at = None
+        self.tts_ready_at = None
+        self.first_audio_frame_logged = False
         self.lip_sync_timer = QTimer(self)
         self.lip_sync_timer.timeout.connect(self.update_lip_sync)
         self._init_tray_icon()
@@ -87,30 +97,153 @@ class ImageWindow(QMainWindow):
         self.tts_worker.start()
 
     def play_voice(self, file_path):
-        if hasattr(self, 'player'):
-            self.player.setSource(QUrl.fromLocalFile(file_path))
-            self.volume_data = self.analyze_audio_volume(file_path)
-            self.player.play()
-            self.lip_sync_timer.start(33)
-        self.player.stop()
-        if self.current_audio_file and os.path.exists(self.current_audio_file):
-            try:
-                os.remove(self.current_audio_file)
-            except:
-                pass
+        if not hasattr(self, 'sound_effect'):
+            return
+
+        self.tts_ready_at = time.perf_counter()
+        print(f"[Audio] TTS 文件已生成: {file_path}")
+        self._stop_current_audio()
+        self._cleanup_audio_file(self.current_audio_file)
 
         self.current_audio_file = file_path
-        self.player.setSource(QUrl.fromLocalFile(file_path))
-        self.player.play()
+        self.pending_audio_file = file_path
+        self.play_called_at = None
+        self.audio_started_at = None
+        self.first_audio_frame_logged = False
+        self.volume_data = self.analyze_audio_volume(file_path)
+        print(f"[Audio] setSource: {file_path}")
+        self.sound_effect.setSource(QUrl.fromLocalFile(file_path))
+        if self.sound_effect.status() == QSoundEffect.Status.Ready:
+            self._start_sound_playback()
+
+    def _stop_current_audio(self):
+        if self.sound_effect.isPlaying():
+            print("[Audio] 停止旧音频播放")
+        self.sound_effect.stop()
+        self.lip_sync_timer.stop()
+        self.audio_started_at = None
+        self.play_called_at = None
+        self.first_audio_frame_logged = False
+        if hasattr(self, 'view'):
+            self.view.mouth_open = 0.0
+
+    def _cleanup_audio_file(self, file_path):
+        if not file_path or file_path == self.pending_audio_file:
+            return
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                print(f"[Audio] 已清理旧音频: {file_path}")
+            except Exception as e:
+                print(f"[Audio] 清理旧音频失败: {e}")
+        if file_path == self.current_audio_file:
+            self.current_audio_file = None
+
+    def _start_sound_playback(self):
+        if not self.pending_audio_file or self.play_called_at is not None:
+            return
+        delay_ms = self._audio_start_delay_ms()
+        self.play_called_at = time.perf_counter()
+        print(f"[Audio] play() 调用，start_delay_ms={delay_ms}")
+        if delay_ms > 0:
+            QTimer.singleShot(delay_ms, self._play_pending_sound)
+        else:
+            self._play_pending_sound()
+
+    def _play_pending_sound(self):
+        if not self.pending_audio_file:
+            return
+        self.sound_effect.play()
+
+    def _handle_sound_status_changed(self):
+        status = self.sound_effect.status()
+        if status == QSoundEffect.Status.Ready and self.pending_audio_file:
+            loaded_at = time.perf_counter()
+            if self.tts_ready_at is not None:
+                print(f"[Audio] 媒体已加载，耗时 {loaded_at - self.tts_ready_at:.3f}s")
+            self._start_sound_playback()
+        elif status == QSoundEffect.Status.Error:
+            print(f"[Audio] 音效加载失败: {self.current_audio_file}")
+
+    def _handle_sound_playing_changed(self):
+        if self.sound_effect.isPlaying():
+            self.audio_started_at = time.perf_counter()
+            if self.play_called_at is not None:
+                print(f"[Audio] 实际开始播放，耗时 {self.audio_started_at - self.play_called_at:.3f}s")
+            self.pending_audio_file = None
+            self.lip_sync_timer.start(33)
+        else:
+            finished_file = self.current_audio_file
+            self.pending_audio_file = None
+            self.lip_sync_timer.stop()
+            self.audio_started_at = None
+            self.play_called_at = None
+            self.first_audio_frame_logged = False
+            if hasattr(self, 'view'):
+                self.view.mouth_open = 0.0
+            self._cleanup_audio_file(finished_file)
+
+    def _audio_start_delay_ms(self):
+        audio_config = self.config.get("audio", {})
+        delay = audio_config.get("start_delay_ms")
+        if delay is None:
+            return 0
+        return max(0, int(delay))
+
+    def _lip_sync_offset_ms(self):
+        lip_sync_config = self.config.get("lip_sync", {})
+        offset = lip_sync_config.get("offset_ms")
+        if offset is None:
+            return 180 if sys.platform == "darwin" else 0
+        return max(0, int(offset))
 
     def get_active_window_title(self):
+        if sys.platform == "win32":
+            return self._get_windows_active_window_title()
+        if sys.platform == "darwin":
+            return self._get_macos_active_window_title()
+        return ""
+
+    def _get_windows_active_window_title(self):
         try:
             hwnd = ctypes.windll.user32.GetForegroundWindow()
             length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
             buff = ctypes.create_unicode_buffer(length + 1)
             ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
             return buff.value
-        except Exception as e:
+        except Exception:
+            return ""
+
+    def _get_macos_active_window_title(self):
+        script = """
+        tell application "System Events"
+            set frontApp to first application process whose frontmost is true
+            set appName to name of frontApp
+            try
+                set windowName to name of front window of frontApp
+                if windowName is missing value or windowName is "" then
+                    return appName
+                end if
+                return appName & " - " & windowName
+            on error
+                return appName
+            end try
+        end tell
+        """
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode != 0:
+                stderr = (result.stderr or "").strip()
+                if stderr:
+                    print(f"[Debug] 读取 macOS 前台窗口失败: {stderr}")
+                return ""
+            return result.stdout.strip()
+        except Exception:
             return ""
 
     def trigger_random_chatter(self):
@@ -326,9 +459,9 @@ class ImageWindow(QMainWindow):
 
     def closeEvent(self, event):
         print("正在退出...")
-        if hasattr(self, 'player'):
-            self.player.stop()
-            self.player.setSource(QUrl())
+        if hasattr(self, 'sound_effect'):
+            self.sound_effect.stop()
+            self.sound_effect.setSource(QUrl())
         import glob
         temp_files = glob.glob("temp_voice_*.*")
         for file in temp_files:
@@ -420,25 +553,37 @@ class ImageWindow(QMainWindow):
             return []
 
     def update_lip_sync(self):
-        if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-            if hasattr(self, 'auto_close_timer') :
+        if self.sound_effect.isPlaying() and self.audio_started_at is not None:
+            if hasattr(self, 'auto_close_timer'):
                 self.auto_close_timer.start(3000)
-            current_time_ms = self.player.position()
-            chunk_index = int(current_time_ms / (1000 / 30))
+            elapsed_ms = (time.perf_counter() - self.audio_started_at) * 1000
+            effective_ms = max(0, elapsed_ms - self._lip_sync_offset_ms())
+            if not self.first_audio_frame_logged and effective_ms > 0:
+                print(f"[Audio] position 首次推进到 {effective_ms:.0f}ms")
+                self.first_audio_frame_logged = True
+            chunk_index = int(effective_ms / (1000 / 30))
 
             if chunk_index < len(self.volume_data):
                 volume = self.volume_data[chunk_index]
                 mouth_open = min(volume * 2.0, 1.0)
                 if hasattr(self, 'view'):
                     self.view.mouth_open = mouth_open
+            elif hasattr(self, 'view'):
+                self.view.mouth_open = 0.0
         else:
             self.lip_sync_timer.stop()
             if hasattr(self, 'view'):
                 self.view.mouth_open = 0.0
 
     def _init_tray_icon(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            print("⚠️ 当前系统不支持托盘，跳过托盘图标初始化。")
+            return
+
         self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon(self.config["live2d"]["ico_path"]))
+        icon = self._resolve_app_icon()
+        if not icon.isNull():
+            self.tray_icon.setIcon(icon)
 
         tray_menu = QMenu()
         self.action_toggle_visibility = QAction("✨ 显示/隐藏", self)
@@ -453,6 +598,18 @@ class ImageWindow(QMainWindow):
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.show()
         self.tray_icon.activated.connect(self.on_tray_activated)
+
+    def _resolve_app_icon(self):
+        icon_path = self.config["live2d"].get("ico_path", "")
+        if icon_path:
+            absolute_icon_path = os.path.abspath(icon_path)
+            if os.path.exists(absolute_icon_path):
+                icon = QIcon(absolute_icon_path)
+                if not icon.isNull():
+                    self.setWindowIcon(icon)
+                    return icon
+
+        return self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
 
     def on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:

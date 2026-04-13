@@ -74,8 +74,9 @@ class Live2DWidget(QOpenGLWidget):
 
 class FloatingBubble(QWidget):
     text_submitted = Signal(str)
-    def __init__(self, parent=None):
+    def __init__(self, config=None, parent=None):
         super().__init__(parent)
+        self.config = config or {}
         self.is_recording = False
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
 
@@ -159,7 +160,7 @@ class FloatingBubble(QWidget):
         self.input.setPlaceholderText("竖起耳朵聆听中...")
         self.btn_voice.setEnabled(False)  # 防止狂点录音
         self.btn_voice.setStyleSheet("background-color: #FFB6C1; border-radius: 18px; color: white;")
-        self.voice_worker = VoiceWorker()
+        self.voice_worker = VoiceWorker(self.config)
 
         def on_voice_success(text):
             self.reset_voice_ui()
@@ -222,4 +223,3 @@ class FloatingBubble(QWidget):
         self.ai_label.adjustSize()
         self.container.adjustSize()
         self.adjustSize()
-
