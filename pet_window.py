@@ -8,7 +8,8 @@ import numpy as np
 from PySide6.QtCore import QTimer, Qt, QUrl
 from PySide6.QtGui import QAction, QContextMenuEvent, QMouseEvent, QPixmap, QIcon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon
+from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon, QPushButton, QHBoxLayout, QWidget, \
+    QSlider, QWidgetAction
 
 from workers import LLMWorker, TTSWorker
 from widgets import Live2DWidget, FloatingBubble
@@ -178,6 +179,25 @@ class ImageWindow(QMainWindow):
         self.action_tts=QAction(f"切换语音(当前:{self.tts_engine})",self)
         self.action_hide = QAction("缩小到托盘", self)
 
+        vol_widget = QWidget()
+        layout = QHBoxLayout(vol_widget)
+        layout.setContentsMargins(10, 5, 10, 5)
+        self.btn_mute_main = QPushButton("🔊")
+        self.btn_mute_main.setFixedSize(24, 24)
+        self.btn_mute_main.setStyleSheet("border: none; background: transparent; font-size: 14px;")
+        self.btn_mute_main.clicked.connect(self.toggle_mute)
+        self.volume_slider_main = QSlider(Qt.Horizontal)
+        self.volume_slider_main.setRange(0, 100)
+        current_vol = int(self.config.get("live2d", {}).get("volume", 1.0) * 100)
+        self.volume_slider_main.setValue(current_vol)
+        self.volume_slider_main.valueChanged.connect(self.change_volume)
+
+        layout.addWidget(self.btn_mute_main)
+        layout.addWidget(self.volume_slider_main)
+
+        vol_action = QWidgetAction(self)
+        vol_action.setDefaultWidget(vol_widget)
+
         self.action_hide.triggered.connect(self.toggle_visibility)
         action_input.triggered.connect(self.input_dialog)
         self.action_dnd.triggered.connect(self.toggle_dnd)
@@ -190,6 +210,8 @@ class ImageWindow(QMainWindow):
         self.context_menu.addAction(action_clear)
         self.context_menu.addSeparator()
         self.context_menu.addAction(self.action_dnd)
+        self.context_menu.addSeparator()
+        self.context_menu.addAction(vol_action)
         self.context_menu.addSeparator()
         self.context_menu.addAction(self.action_hide)
         self.context_menu.addSeparator()
@@ -443,10 +465,35 @@ class ImageWindow(QMainWindow):
         tray_menu = QMenu()
         self.action_toggle_visibility = QAction("✨ 显示/隐藏", self)
         self.action_toggle_visibility.triggered.connect(self.toggle_visibility)
+
+        slider_widget = QWidget()
+        slider_layout = QHBoxLayout(slider_widget)
+        slider_layout.setContentsMargins(15, 5, 15, 5)
+
+        self.btn_mute = QPushButton("🔊")
+        self.btn_mute.setFixedSize(28, 28)
+        self.btn_mute.setCursor(Qt.PointingHandCursor)  # 鼠标悬浮变小手
+        self.btn_mute.setStyleSheet("""
+                    QPushButton { border: none; background: transparent; font-size: 16px; }
+                    QPushButton:hover { color: #FFB6C1; } /* 鼠标移上去稍微变个色 */
+                """)
+        self.btn_mute.clicked.connect(self.toggle_mute)
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(0, 100)
+        current_vol = int(self.config.get("live2d", {}).get("volume", 1.0) * 100)
+        self.volume_slider.setValue(current_vol)
+        self.volume_slider.valueChanged.connect(self.change_volume)
+        slider_layout.addWidget(self.btn_mute)
+        slider_layout.addWidget(self.volume_slider)
+        self.action_volume_slider = QWidgetAction(self)
+        self.action_volume_slider.setDefaultWidget(slider_widget)
+
         action_quit = QAction("❌ 退出", self)
         action_quit.triggered.connect(self.close)
 
         tray_menu.addAction(self.action_toggle_visibility)
+        tray_menu.addSeparator()
+        tray_menu.addAction(self.action_volume_slider)
         tray_menu.addSeparator()
         tray_menu.addAction(action_quit)
 
@@ -468,3 +515,35 @@ class ImageWindow(QMainWindow):
         else:
             self.hide()
             self.bubble.hide()
+
+    def toggle_mute(self):
+        is_muted = not self.audio_output.isMuted()
+        self.audio_output.setMuted(is_muted)
+        icon = "🔇" if is_muted else "🔊"
+        if hasattr(self, 'btn_mute'): self.btn_mute.setText(icon)
+        if hasattr(self, 'btn_mute_main'): self.btn_mute_main.setText(icon)
+        # msg = "嘘——我现在被物理闭麦啦！" if is_muted else "我又可以发出声音啦！"
+        # self.bubble.show_text(msg, user_text="")
+
+        if hasattr(self, 'auto_close_timer'):
+            self.auto_close_timer.start(3000)
+
+    def change_volume(self, value):
+        volume_float = value / 100.0
+        self.audio_output.setVolume(volume_float)
+        self.config["live2d"]["volume"] = volume_float
+        if hasattr(self, 'volume_slider'):
+            self.volume_slider.blockSignals(True)
+            self.volume_slider.setValue(value)
+            self.volume_slider.blockSignals(False)
+
+        if hasattr(self, 'volume_slider_main'):
+            self.volume_slider_main.blockSignals(True)
+            self.volume_slider_main.setValue(value)
+            self.volume_slider_main.blockSignals(False)
+
+        if self.audio_output.isMuted():
+            self.audio_output.setMuted(False)
+            icon = "🔊"
+            if hasattr(self, 'btn_mute'): self.btn_mute.setText(icon)
+            if hasattr(self, 'btn_mute_main'): self.btn_mute_main.setText(icon)
