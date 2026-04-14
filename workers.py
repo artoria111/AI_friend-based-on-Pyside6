@@ -10,7 +10,7 @@ import speech_recognition as sr
 from faster_whisper import WhisperModel
 
 print("正在将耳朵(Whisper)装载进显存...")
-whisper_model = WhisperModel("small", device="cuda", compute_type="float16")
+whisper_model = WhisperModel("medium", device="cuda", compute_type="float16")
 print("耳朵装载完毕！")
 
 class TTSWorker(QThread):
@@ -86,7 +86,14 @@ class VoiceWorker(QThread):
                 with open(temp_file, "wb") as f:
                     f.write(audio.get_wav_data())
 
-                segments, info = whisper_model.transcribe(temp_file, beam_size=5, language="zh")
+                segments, info = whisper_model.transcribe(
+                    temp_file,
+                    beam_size=5,
+                    language="zh",
+                    initial_prompt="以下是一段普通话日常对话。",
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=500)
+                )
                 text = "".join([segment.text for segment in segments]).strip()
 
                 if not text:

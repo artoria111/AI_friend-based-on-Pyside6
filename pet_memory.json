@@ -58,5 +58,13 @@
     {
         "role": "assistant",
         "content": "魔力之光在指尖跳跃，\n闪耀光芒为友人照亮。"
+    },
+    {
+        "role": "user",
+        "content": "晚上好。"
+    },
+    {
+        "role": "assistant",
+        "content": "晚上好～今天累不累～"
     }
 ]
