@@ -142,3 +142,37 @@ class LLMWorker(QThread):
 
         except Exception as e:
             self.response_ready.emit(f"大脑短路了喵：{str(e)}")
+
+
+from PySide6.QtCore import QThread, Signal
+from llama_cpp import Llama
+
+class BrainLoaderThread(QThread):
+    brain_ready = Signal(object)
+    error_occurred = Signal(str)
+    progress_updated = Signal(float)
+
+    def __init__(self, model_path):
+        super().__init__()
+        self.model_path = model_path
+
+    def run(self):
+        try:
+            def my_progress_callback(progress_val: float):
+                self.progress_updated.emit(progress_val)
+                return None
+
+            print("🧠 后台线程：开始搬运大脑到显卡...")
+            # 这里的耗时操作不会卡住界面了
+            llm = Llama(
+                model_path=self.model_path,
+                n_gpu_layers=-1,
+                n_ctx=2048,
+                use_mmap=True, # 👉 强烈建议加上这个！开启内存映射，第二次启动会变快！
+                verbose=False,
+                progress_callback=my_progress_callback
+            )
+            print("🧠 后台线程：大脑搬运完毕！")
+            self.brain_ready.emit(llm) # 把大脑递给主窗口
+        except Exception as e:
+            self.error_occurred.emit(f"脑电波连接失败：{str(e)}")

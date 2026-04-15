@@ -9,10 +9,10 @@ from PySide6.QtCore import QTimer, Qt, QUrl
 from PySide6.QtGui import QAction, QContextMenuEvent, QMouseEvent, QPixmap, QIcon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon, QPushButton, QHBoxLayout, QWidget, \
-    QSlider, QWidgetAction
-from llama_cpp import Llama
+    QSlider, QWidgetAction, QProgressBar
 
-from workers import LLMWorker, TTSWorker
+
+from workers import LLMWorker, TTSWorker, BrainLoaderThread
 from widgets import Live2DWidget, FloatingBubble
 
 import sys
@@ -27,9 +27,32 @@ def get_base_path():
     return os.path.dirname(os.path.abspath(__file__))
 
 class ImageWindow(QMainWindow):
-    def __init__(self, config,scale_factor=0.3):
+    def __init__(self, config, scale_factor=0.3):
         super().__init__()
+
+        # ==========================================
+        # 阶段 1：基础配置与路径解析 (准备数据)
+        # ==========================================
         self.config = config
+        self.scale_factor = scale_factor
+        self.llm = None
+        self.dnd_mode = False
+        self.history_file = "pet_memory.json"
+        self.diary_file = "pet_diary.json"
+        self.reminders = []
+        self.system_prompt = {"role": "system", "content": config["prompt"]["content"]}
+        self.chat_memory = self.load_memory()
+        self.tts_engine = self.config["live2d"]["tts_engine"]
+
+        base_dir = get_base_path()
+        model_path = os.path.join(base_dir, self.config["live2d"]["model_path"])
+        icon_path = os.path.join(base_dir, self.config["live2d"]["icon_path"])
+        llm_path = str(os.path.join(base_dir, self.config["live2d"]["llm_path"]))
+
+        # ==========================================
+        # 阶段 2：核心窗口与 Live2D 躯体 (搭建骨架)
+        # ==========================================
+        # 必须先把主窗口的属性、大小、位置定下来，后面的气泡才有锚点！
         self.setWindowTitle("MyDesktopPet")
         if self.config["live2d"]["on_top_table"]:
             self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -37,78 +60,85 @@ class ImageWindow(QMainWindow):
             self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-        self._drag_pos = None
-        self.visual_timer = QTimer(self)
-        self.visual_timer.setSingleShot(True)
-        self.visual_timer.timeout.connect(self._enable_drag_visuals)
-        self.scale_factor = scale_factor
-
-        base_dir = get_base_path()
-        model_path = os.path.join(base_dir, self.config["live2d"]["model_path"])
-        icon_path = os.path.join(base_dir, self.config["live2d"]["icon_path"])
-        llm_path = str(os.path.join(base_dir, self.config["live2d"]["llm_path"]))
-
-
-        print("🧠 正在将魔法少女的大脑装载进显存...")
-        if not os.path.exists(llm_path):
-            raise FileNotFoundError(f"找不到模型文件：{model_path}")
-        self.llm = Llama(
-            model_path=llm_path,
-            n_gpu_layers=-1,
-            n_ctx=2048,
-            chat_format="chatml",
-            verbose=False
-        )
-        print("🧠 大脑装载完毕！")
-
-        self.view = Live2DWidget(model_path, self.config,self)
+        # 核心：立刻实例化 Live2D 并撑开窗口！
+        self.view = Live2DWidget(model_path, self.config, self)
         self.setCentralWidget(self.view)
-        w=config['window']['width']
-        h=config['window']['height']
+        w = config['window']['width']
+        h = config['window']['height']
         self.resize(w, h)
         self.set_initial_position()
-        
-        # 👉 【新增】：默认关闭勿扰模式
-        self.dnd_mode = False
 
-        self.history_file = "pet_memory.json"
-        self.system_prompt = {
-            "role": "system",
-            "content": config["prompt"]["content"]
-        }
-        # 启动时加载记忆
-        self.chat_memory = self.load_memory()
-
-        # 👉 【新增】：初始化悬浮气泡
+        # ==========================================
+        # 阶段 3：附加 UI 组件 (穿搭外衣)
+        # ==========================================
+        # 1. 悬浮气泡
         self.bubble = FloatingBubble()
-        # 绑定气泡发送文字的信号
         self.bubble.text_submitted.connect(self.handle_bubble_text)
         self.bubble.btn_close.clicked.connect(self.close_bubble_action)
-        self.tts_engine = self.config["live2d"]["tts_engine"]
-        self.diary_file = "pet_diary.json"
-        self.reminders = []  # 存放待触发的提醒任务
 
+        # 2. 进度条 (修复：让进度条根据窗口大小动态居中，而不是写死 50,200)
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid grey;
+                border-radius: 5px;
+                text-align: center;
+                color: black;
+                font-weight: bold;
+            }
+            QProgressBar::chunk {
+                background-color: #FFA500; /* 魔法少女专属橘色 */
+                width: 10px;
+                margin: 0.5px;
+            }
+        """)
+        self.progress_bar.setFixedSize(150, 20)
+        # 让进度条显示在桌宠脚下偏中心的位置
+        self.progress_bar.move(int((w - 150) / 2), int(0))
+        self.progress_bar.show()
 
-#----------------------------------------------------
+        # 3. 托盘与菜单
         self._init_main_menu()
-# ----------------------------------------------------
-        self.llm_workers = []
-        self.chatter_timer = QTimer(self)
-        self.chatter_timer.timeout.connect(self.trigger_random_chatter)
-        self.chatter_timer.start(60000)
-        self.auto_close_timer = QTimer(self)
-        self.auto_close_timer.setSingleShot(True)
-        self.auto_close_timer.timeout.connect(self.close_bubble_action)
-        self.bubble.input.textChanged.connect(self.auto_close_timer.stop)
+        self._init_tray_icon(icon_path)
+
+        # ==========================================
+        # 阶段 4：音频与定时器系统 (连接神经)
+        # ==========================================
         self.player = QMediaPlayer()
         self.audio_output = QAudioOutput()
         self.player.setAudioOutput(self.audio_output)
         self.audio_output.setVolume(config["live2d"]["volume"])
         self.current_audio_file = None
-        self.volume_data = [] 
+        self.volume_data = []
+
         self.lip_sync_timer = QTimer(self)
         self.lip_sync_timer.timeout.connect(self.update_lip_sync)
-        self._init_tray_icon(icon_path)
+
+        self._drag_pos = None
+        self.visual_timer = QTimer(self)
+        self.visual_timer.setSingleShot(True)
+        self.visual_timer.timeout.connect(self._enable_drag_visuals)
+
+        self.llm_workers = []
+        self.chatter_timer = QTimer(self)
+        self.chatter_timer.timeout.connect(self.trigger_random_chatter)
+        self.chatter_timer.start(60000)
+
+        self.auto_close_timer = QTimer(self)
+        self.auto_close_timer.setSingleShot(True)
+        self.auto_close_timer.timeout.connect(self.close_bubble_action)
+        self.bubble.input.textChanged.connect(self.auto_close_timer.stop)
+
+        # ==========================================
+        # 阶段 5：初始视觉状态呈现 (开口说话)
+        # ==========================================
+        self.brain_loader = BrainLoaderThread(llm_path)
+        self.brain_loader.progress_updated.connect(self.on_progress_update)
+        self.brain_loader.brain_ready.connect(self.on_brain_loaded)
+        self.brain_loader.error_occurred.connect(self.on_brain_error)
+        self.brain_loader.start()
 
     def speak_text(self, text):
         """触发配音并播放"""
@@ -275,6 +305,10 @@ class ImageWindow(QMainWindow):
         self.auto_close_timer.stop()
 
     def handle_bubble_text(self, text):
+        if self.llm is None:
+            self.bubble.show_text("💤 别吵...我还在睡觉...", user_text="")
+            return
+
         self.auto_close_timer.stop()
         self.chat_memory.append({"role": "user", "content": text})
         if len(self.chat_memory) > 21:
@@ -576,3 +610,23 @@ class ImageWindow(QMainWindow):
             icon = "🔊"
             if hasattr(self, 'btn_mute'): self.btn_mute.setText(icon)
             if hasattr(self, 'btn_mute_main'): self.btn_mute_main.setText(icon)
+
+    def on_brain_loaded(self, loaded_llm):
+        self.llm = loaded_llm
+        self.progress_bar.hide()
+        self.bubble.show_text("✨ 魔法连接完毕，我已苏醒", user_text="")
+        if hasattr(self, 'auto_close_timer'):
+            self.auto_close_timer.start(5000)
+
+    def on_brain_error(self, error_msg):
+        self.bubble.show_text(f"😵 完蛋了：{error_msg}", user_text="")
+
+    def on_progress_update(self, progress_val):
+        percent = int(progress_val * 100)
+        self.progress_bar.setValue(percent)
+
+    # 👉 重写 Qt 的内置显示事件
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, 'bubble'):
+            self.update_bubble_position()
