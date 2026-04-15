@@ -46,16 +46,18 @@ class ImageWindow(QMainWindow):
         base_dir = get_base_path()
         model_path = os.path.join(base_dir, self.config["live2d"]["model_path"])
         icon_path = os.path.join(base_dir, self.config["live2d"]["icon_path"])
-        llm_path = os.path.join(base_dir, self.config["live2d"]["llm_path"])
+        llm_path = str(os.path.join(base_dir, self.config["live2d"]["llm_path"]))
+
 
         print("🧠 正在将魔法少女的大脑装载进显存...")
-        if not os.path.exists(model_path):
+        if not os.path.exists(llm_path):
             raise FileNotFoundError(f"找不到模型文件：{model_path}")
         self.llm = Llama(
             model_path=llm_path,
-            n_gpu_layers=-1,  # 全塞进显卡
-            n_ctx=2048,  # 记忆长度
-            verbose=False  # 关掉底层啰嗦的 C++ 日志，保持控制台清爽
+            n_gpu_layers=-1,
+            n_ctx=2048,
+            chat_format="chatml",
+            verbose=False
         )
         print("🧠 大脑装载完毕！")
 
