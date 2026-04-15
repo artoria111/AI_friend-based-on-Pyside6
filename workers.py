@@ -115,6 +115,7 @@ class LLMWorker(QThread):
         super().__init__()
         self.config = config
         self.llm = llm
+        self.llm_mode = self.config.get("llm", {}).get("mode", "local")
 
         if isinstance(input_data, list):
             self.messages = input_data
@@ -127,12 +128,22 @@ class LLMWorker(QThread):
 
     def run(self):
         try:
-            response = self.llm.create_chat_completion(
-                messages=self.messages,
-                max_tokens=self.config.get("live2d", {}).get("max_tokens", 100),  # 限制字数
-                temperature=self.config.get("live2d", {}).get("temperature", 0.7)  # 活跃度
-            )
-            reply = response["choices"][0]["message"]["content"]
+            if self.llm_mode == "api":
+                # 🟢 API 模式的调用语法
+                response = self.llm.chat.completions.create(
+                    model=self.config["llm"]["api_model"],
+                    messages=self.messages,
+                    temperature=0.7
+                )
+                # 提取回复内容
+                reply = response.choices[0].message.content
+            else:
+                response = self.llm.create_chat_completion(
+                    messages=self.messages,
+                    max_tokens=self.config.get("live2d", {}).get("max_tokens", 100),  # 限制字数
+                    temperature=self.config.get("live2d", {}).get("temperature", 0.7)  # 活跃度
+                )
+                reply = response["choices"][0]["message"]["content"]
             self.response_ready.emit(reply)
 
         except Exception as e:

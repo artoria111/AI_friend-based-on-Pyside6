@@ -23,6 +23,13 @@ live2d:
   on_top_table: true  # 位于桌面最上层
   icon_path: "icon/my_icon.ico"
 
+llm:
+  mode: "api"
+  local_path: "models/qwen2.5-3b-instruct-q4_k_m.gguf"
+  api_url: "https://api.siliconflow.cn/v1"
+  api_key: "sk-slgzltoeimsadsyoeyacwpiddvvxuigmhrzywttqylfjteyq"
+  api_model: "Qwen/Qwen2.5-7B-Instruct"
+
 prompt:
   content: |
       你叫李雨欣，是一位拥有橘色短发、挑染蓝色发丝的见习巫女。头戴宽大的深蓝色尖顶巫女帽（点缀着黑色蝴蝶结和一只小白兔装饰），

@@ -5,7 +5,7 @@ import random
 import soundfile as sf
 import numpy as np
 
-from PySide6.QtCore import QTimer, Qt, QUrl
+from PySide6.QtCore import QTimer, Qt, QUrl, QEasingCurve, QPropertyAnimation
 from PySide6.QtGui import QAction, QContextMenuEvent, QMouseEvent, QPixmap, QIcon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon, QPushButton, QHBoxLayout, QWidget, \
@@ -47,7 +47,6 @@ class ImageWindow(QMainWindow):
         base_dir = get_base_path()
         model_path = os.path.join(base_dir, self.config["live2d"]["model_path"])
         icon_path = os.path.join(base_dir, self.config["live2d"]["icon_path"])
-        llm_path = str(os.path.join(base_dir, self.config["live2d"]["llm_path"]))
 
         # ==========================================
         # 阶段 2：核心窗口与 Live2D 躯体 (搭建骨架)
@@ -134,17 +133,32 @@ class ImageWindow(QMainWindow):
         # ==========================================
         # 阶段 5：初始视觉状态呈现 (开口说话)
         # ==========================================
+        self.llm = None
         self.whisper = None
-        self.brain_loader = BrainLoaderThread(llm_path)
-        self.brain_loader.progress_updated.connect(self.on_progress_update)
-        self.brain_loader.brain_ready.connect(self.on_brain_loaded)
-        self.brain_loader.error_occurred.connect(self.on_brain_error)
-        self.brain_loader.start()
-
         self.ear_loader = WhisperLoaderThread(model_size="medium", device="cuda", compute_type="float16")
         self.ear_loader.whisper_ready.connect(self.on_whisper_loaded)
         self.ear_loader.error_occurred.connect(self.on_whisper_error)
         self.ear_loader.start()
+        self.llm_mode = self.config.get("llm", {}).get("mode", "local")
+        if self.llm_mode == "api":
+            from openai import OpenAI
+            self.llm = OpenAI(
+                base_url=self.config["llm"]["api_url"],
+                api_key=self.config["llm"]["api_key"]
+            )
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.hide()
+            if hasattr(self, 'auto_close_timer'):
+                self.auto_close_timer.start(5000)
+        else:
+            llm_path = str(os.path.join(base_dir, self.config["llm"]["local_path"]))
+            self.brain_loader = BrainLoaderThread(llm_path)
+            self.brain_loader.progress_updated.connect(self.on_progress_update)
+            self.brain_loader.brain_ready.connect(self.on_brain_loaded)
+            self.brain_loader.error_occurred.connect(self.on_brain_error)
+            self.brain_loader.start()
+
+
 
     def speak_text(self, text):
         """触发配音并播放"""
@@ -619,8 +633,23 @@ class ImageWindow(QMainWindow):
 
     def on_brain_loaded(self, loaded_llm):
         self.llm = loaded_llm
+
+        # 👉 核心防暗杀机制：不许立刻 hide！
+        # 强制把动画目标设为 100，并启动
+        if hasattr(self, 'progress_anim'):
+            self.progress_anim.setEndValue(100)
+            self.progress_anim.start()
+
+            # 使用 QTimer 强行等 600 毫秒（等那个 500 毫秒的动画彻底走完）
+            # 再去执行收尾工作
+            QTimer.singleShot(600, self.finish_brain_loading)
+        else:
+            # 万一压根没触发进度回调，直接收尾
+            self.progress_bar.setValue(100)
+            QTimer.singleShot(200, self.finish_brain_loading)
+
+    def finish_brain_loading(self):
         self.progress_bar.hide()
-        self.bubble.show_text("✨ 魔法连接完毕，我已苏醒", user_text="")
         if hasattr(self, 'auto_close_timer'):
             self.auto_close_timer.start(5000)
 
@@ -629,7 +658,18 @@ class ImageWindow(QMainWindow):
 
     def on_progress_update(self, progress_val):
         percent = int(progress_val * 100)
-        self.progress_bar.setValue(percent)
+
+        if not hasattr(self, 'progress_anim'):
+            self.progress_anim = QPropertyAnimation(self.progress_bar, b"value")
+            self.progress_anim.setDuration(500)
+            self.progress_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        if self.progress_anim.state() == QPropertyAnimation.State.Running:
+            if percent - self.progress_anim.endValue() < 5:
+                return
+
+        self.progress_anim.setEndValue(percent)
+        self.progress_anim.start()
 
     # 👉 重写 Qt 的内置显示事件
     def showEvent(self, event):

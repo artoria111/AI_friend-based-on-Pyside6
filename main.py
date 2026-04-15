@@ -1,5 +1,10 @@
-import os
 import sys
+import os
+if getattr(sys, 'frozen', False):
+    log_file = open("pet_error.log", "w", encoding="utf-8")
+    sys.stdout = log_file
+    sys.stderr = log_file
+
 import yaml
 from PySide6.QtWidgets import QApplication
 from pet_window import ImageWindow

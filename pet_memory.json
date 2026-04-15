@@ -5,82 +5,10 @@
     },
     {
         "role": "user",
-        "content": "OK 早上好"
-    },
-    {
-        "role": "assistant",
-        "content": "早上好～阳光像魔法墨水洒在窗上啦！"
-    },
-    {
-        "role": "user",
         "content": "你好"
     },
     {
         "role": "assistant",
-        "content": "你好～有什么好玩的事儿想跟我分享吗？"
-    },
-    {
-        "role": "user",
-        "content": "晚上好"
-    },
-    {
-        "role": "assistant",
-        "content": "晚上好～今天过得怎么样～"
-    },
-    {
-        "role": "user",
-        "content": "你好"
-    },
-    {
-        "role": "assistant",
-        "content": "没网了！你是想饿死我吗！"
-    },
-    {
-        "role": "user",
-        "content": "你好"
-    },
-    {
-        "role": "assistant",
-        "content": "没网了！你是想饿死我吗！"
-    },
-    {
-        "role": "user",
-        "content": "喂 寶藏好"
-    },
-    {
-        "role": "assistant",
-        "content": "宝藏图找着了吗～安全第一哦～"
-    },
-    {
-        "role": "user",
-        "content": "念一段长一点的魔法吟唱给我听好吗，我想要测试一下你的音量"
-    },
-    {
-        "role": "assistant",
-        "content": "魔力之光在指尖跳跃，\n闪耀光芒为友人照亮。"
-    },
-    {
-        "role": "user",
-        "content": "晚上好。"
-    },
-    {
-        "role": "assistant",
-        "content": "晚上好～今天累不累～"
-    },
-    {
-        "role": "user",
-        "content": "你好"
-    },
-    {
-        "role": "assistant",
-        "content": "你好～最近有啥新奇的事儿～"
-    },
-    {
-        "role": "user",
-        "content": "你好"
-    },
-    {
-        "role": "assistant",
-        "content": "你好～咋样，晚上睡得香不香～"
+        "content": "你好～"
     }
 ]

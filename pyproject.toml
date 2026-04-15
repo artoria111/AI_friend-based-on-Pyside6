@@ -8,6 +8,7 @@ dependencies = [
     "faster-whisper>=1.2.1",
     "live2d-py>=0.6.1.1",
     "onnxruntime<1.24.0",
+    "openai>=2.31.0",
     "pyaudio>=0.2.14",
     "pyside6>=6.10.2",
     "pyyaml>=6.0.3",
