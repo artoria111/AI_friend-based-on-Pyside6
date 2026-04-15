@@ -7,11 +7,6 @@ import edge_tts
 import requests
 from PySide6.QtCore import QThread, Signal
 import speech_recognition as sr
-from faster_whisper import WhisperModel
-
-print("正在将耳朵(Whisper)装载进显存...")
-whisper_model = WhisperModel("medium", device="cuda", compute_type="float16")
-print("耳朵装载完毕！")
 
 class TTSWorker(QThread):
     finished = Signal(str)
@@ -75,7 +70,7 @@ class VoiceWorker(QThread):
     finished = Signal(str)
     error = Signal(str)
 
-    def run(self):
+    def run(self, whisper_model=None):
         recognizer = sr.Recognizer()
         temp_file = f"temp_record_{int(time.time())}.wav"
 
@@ -145,7 +140,6 @@ class LLMWorker(QThread):
 
 
 from PySide6.QtCore import QThread, Signal
-from llama_cpp import Llama
 
 class BrainLoaderThread(QThread):
     brain_ready = Signal(object)
@@ -158,6 +152,7 @@ class BrainLoaderThread(QThread):
 
     def run(self):
         try:
+            from llama_cpp import Llama
             def my_progress_callback(progress_val: float):
                 self.progress_updated.emit(progress_val)
                 return None
@@ -168,7 +163,7 @@ class BrainLoaderThread(QThread):
                 model_path=self.model_path,
                 n_gpu_layers=-1,
                 n_ctx=2048,
-                use_mmap=True, # 👉 强烈建议加上这个！开启内存映射，第二次启动会变快！
+                use_mmap=False,
                 verbose=False,
                 progress_callback=my_progress_callback
             )
@@ -176,3 +171,39 @@ class BrainLoaderThread(QThread):
             self.brain_ready.emit(llm) # 把大脑递给主窗口
         except Exception as e:
             self.error_occurred.emit(f"脑电波连接失败：{str(e)}")
+
+
+from PySide6.QtCore import QThread, Signal
+
+
+class WhisperLoaderThread(QThread):
+    # 装载完毕后，把耳朵（Whisper模型对象）交出来
+    whisper_ready = Signal(object)
+    error_occurred = Signal(str)
+
+    def __init__(self, model_size="medium", device="cuda", compute_type="float16"):
+        super().__init__()
+        self.model_size = model_size
+        self.device = device
+        self.compute_type = compute_type
+
+    def run(self):
+        try:
+            # 👉 绝对核心：延迟导入！把这句从文件最上面挪到这里来！
+            from faster_whisper import WhisperModel
+
+            print("👂 后台线程：开始加载听觉神经 (Whisper)...")
+
+            # 初始化模型（这里可能会耗时几秒到十几秒）
+            whisper_model = WhisperModel(
+                self.model_size,
+                device=self.device,
+                compute_type=self.compute_type
+            )
+
+            print("👂 后台线程：听觉神经加载完毕！")
+            # 把耳朵递给主窗口
+            self.whisper_ready.emit(whisper_model)
+
+        except Exception as e:
+            self.error_occurred.emit(f"听觉神经加载失败：{str(e)}")

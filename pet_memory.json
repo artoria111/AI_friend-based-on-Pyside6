@@ -74,5 +74,13 @@
     {
         "role": "assistant",
         "content": "你好～最近有啥新奇的事儿～"
+    },
+    {
+        "role": "user",
+        "content": "你好"
+    },
+    {
+        "role": "assistant",
+        "content": "你好～咋样，晚上睡得香不香～"
     }
 ]

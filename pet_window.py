@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon,
     QSlider, QWidgetAction, QProgressBar
 
 
-from workers import LLMWorker, TTSWorker, BrainLoaderThread
+from workers import LLMWorker, TTSWorker, BrainLoaderThread, WhisperLoaderThread
 from widgets import Live2DWidget, FloatingBubble
 
 import sys
@@ -134,11 +134,17 @@ class ImageWindow(QMainWindow):
         # ==========================================
         # 阶段 5：初始视觉状态呈现 (开口说话)
         # ==========================================
+        self.whisper = None
         self.brain_loader = BrainLoaderThread(llm_path)
         self.brain_loader.progress_updated.connect(self.on_progress_update)
         self.brain_loader.brain_ready.connect(self.on_brain_loaded)
         self.brain_loader.error_occurred.connect(self.on_brain_error)
         self.brain_loader.start()
+
+        self.ear_loader = WhisperLoaderThread(model_size="medium", device="cuda", compute_type="float16")
+        self.ear_loader.whisper_ready.connect(self.on_whisper_loaded)
+        self.ear_loader.error_occurred.connect(self.on_whisper_error)
+        self.ear_loader.start()
 
     def speak_text(self, text):
         """触发配音并播放"""
@@ -630,3 +636,11 @@ class ImageWindow(QMainWindow):
         super().showEvent(event)
         if hasattr(self, 'bubble'):
             self.update_bubble_position()
+
+    def on_whisper_loaded(self, loaded_whisper):
+        self.whisper = loaded_whisper
+        print("✨ 听觉神经系统上线！可以开始语音输入了。")
+
+    def on_whisper_error(self, error_msg):
+        print(f"❌ 语音模块出错了：{error_msg}")
+        self.bubble.show_text("🤒 我的耳朵好像有点痛...暂时听不见了喵。", user_text="")
