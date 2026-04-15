@@ -2,6 +2,8 @@ import ctypes
 import json
 import os
 import random
+import sys
+
 import soundfile as sf
 import numpy as np
 
@@ -13,6 +15,17 @@ from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon,
 
 from workers import LLMWorker, TTSWorker
 from widgets import Live2DWidget, FloatingBubble
+
+import sys
+import os
+
+
+def get_base_path():
+    if getattr(sys, 'frozen', False):
+        # sys.executable 指的是当前运行的 exe 文件的绝对路径
+        return os.path.dirname(sys.executable)
+
+    return os.path.dirname(os.path.abspath(__file__))
 
 class ImageWindow(QMainWindow):
     def __init__(self, config,scale_factor=0.3):
@@ -31,7 +44,9 @@ class ImageWindow(QMainWindow):
         self.visual_timer.timeout.connect(self._enable_drag_visuals)
         self.scale_factor = scale_factor
 
-        model_path = config["live2d"]["model_path"]
+        base_dir = get_base_path()
+        model_path = os.path.join(base_dir, self.config["live2d"]["model_path"])
+        icon_path = os.path.join(base_dir, self.config["live2d"]["icon_path"])
         self.view = Live2DWidget(model_path, self.config,self)
         self.setCentralWidget(self.view)
         w=config['window']['width']

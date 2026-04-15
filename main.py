@@ -1,3 +1,4 @@
+import os
 import sys
 import yaml
 from PySide6.QtWidgets import QApplication
@@ -12,10 +13,17 @@ def load_config(config_path="config.yaml"):
         print(f"❌ 配置文件读取失败，将使用默认参数。错误：{e}")
         return {}
 
+def get_base_path():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    config = load_config("config.yaml")
+    base_dir = get_base_path()
+    os.chdir(base_dir)
+    config_path = os.path.join(base_dir, "config.yaml")
+    config=load_config(config_path)
     window = ImageWindow(config=config)
     window.show()
 
