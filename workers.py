@@ -129,7 +129,6 @@ class LLMWorker(QThread):
     def run(self):
         try:
             if self.llm_mode == "api":
-                # 🟢 API 模式的调用语法
                 response = self.llm.chat.completions.create(
                     model=self.config["llm"]["api_model"],
                     messages=self.messages,
@@ -140,8 +139,8 @@ class LLMWorker(QThread):
             else:
                 response = self.llm.create_chat_completion(
                     messages=self.messages,
-                    max_tokens=self.config.get("live2d", {}).get("max_tokens", 100),  # 限制字数
-                    temperature=self.config.get("live2d", {}).get("temperature", 0.7)  # 活跃度
+                    max_tokens=self.config.get("live2d", {}).get("max_tokens", 100),
+                    temperature=self.config.get("live2d", {}).get("temperature", 0.7)
                 )
                 reply = response["choices"][0]["message"]["content"]
             self.response_ready.emit(reply)

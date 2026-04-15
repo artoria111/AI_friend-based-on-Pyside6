@@ -148,6 +148,7 @@ class ImageWindow(QMainWindow):
             )
             if hasattr(self, 'progress_bar'):
                 self.progress_bar.hide()
+            print("✨ 云端api已接通")
             if hasattr(self, 'auto_close_timer'):
                 self.auto_close_timer.start(5000)
         else:

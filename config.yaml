@@ -24,10 +24,10 @@ live2d:
   icon_path: "icon/my_icon.ico"
 
 llm:
-  mode: "api"
-  local_path: "models/qwen2.5-3b-instruct-q4_k_m.gguf"
-  api_url: "https://api.siliconflow.cn/v1"
-  api_key: "sk-slgzltoeimsadsyoeyacwpiddvvxuigmhrzywttqylfjteyq"
+  mode: "api" #local or api
+  local_path: "models/qwen2.5-3b-instruct-q4_k_m.gguf"  # 本地模型路径
+  api_url: "your_url"  # 云端模型url
+  api_key: "your_key"
   api_model: "Qwen/Qwen2.5-7B-Instruct"
 
 prompt:

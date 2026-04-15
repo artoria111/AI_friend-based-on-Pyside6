@@ -7,7 +7,7 @@
 
 这是一个基于 Python 和 PySide6 开发的桌面级 AI 虚拟陪伴宠物。她不仅拥有原生的透明无框 Live2D 躯壳，还接入了本地 LLM 大模型与 TTS 语音合成，希望能给你增添一些乐趣。
 
-## ✨ 核心特性 (Features)
+## ✨ 核心特性
 
 - **🎭 原生 Live2D 渲染**：基于 `live2d-py` 与 OpenGL 的硬件加速渲染，完美支持透明背景、物理碰撞与随机待机动作，极低性能开销。
 - **🗣️ 实时语音与动态口型 (Lip-Sync)**：集成 GPT-SoVITS / Edge-TTS，通过 `soundfile` 实时解析音频 RMS 包络线，驱动 Live2D 模型参数实现完美对口型。
@@ -15,14 +15,14 @@
 - **⏰ 强制霸屏提醒系统**：AI 语义提取日程安排，时间一到强制接管屏幕中心，不互动绝不退让的“硬核”监督。
 - **⚙️ 全局 YAML 配置**：通过 `config.yaml` 零代码热切换模型、调整视口坐标、切换语音引擎和更改人设。
 
-## 🛠️ 技术栈 (Tech Stack)
+## 🛠️ 技术栈
 
 - **GUI 框架**: PySide6 (Qt for Python)
 - **图形渲染**: OpenGL, live2d-py
 - **音频处理**: soundfile, numpy, PySide6.QtMultimedia
 - **AI 交互**: requests (对接本地LLM 接口), GPT-SoVITS 
 
-## 🚀 快速开始 (Getting Started)
+## 🚀 快速开始 (本地部署)
 
 ### 1. 环境准备
 推荐使用Python 包管理器 `uv` 来建立独立的虚拟环境：
@@ -58,6 +58,28 @@ python main.py
 如果你部署了GPT-SoVITS，请将config.yaml中的live2d.tts_engine修改为sovits，并确保sovits的api已开启
 
 注意：如果你修改过config.yaml，请你重启她
+
+## 🚀 Release版本（开袋即食）
+### 1.部署（可选）
+在release分支中拉取代码，运行main.py。
+
+### 2.下载
+在Releases中下载压缩包并解压，运行AI_friend.exe。
+
+### 3.llm配置
+在config.yaml文件中
+```bash
+llm:
+  mode: "api" #local or api
+  local_path: "models/qwen2.5-3b-instruct-q4_k_m.gguf"  # 本地模型路径
+  api_url: "your_url"  # 云端模型url
+  api_key: "your_key"  # 密钥
+  api_model: "Qwen/Qwen2.5-7B-Instruct"
+```
+其中，在local模式下，可以将模型的gguf文件放置在models文件夹下。这里推荐去魔搭社区下载模型文件。
+
+而在api模式下，需要云端模型的url和密钥。这里推荐去硅基流动的官网注册一个免费的api密钥，替换掉api_url和api_key即可。
+
 ## 🎮 互动指南 
 1.唤醒与拖拽：鼠标左键按住身体可自由拖拽位置,默认生成位置为屏幕右下角（可在config.yaml中更改）
 
