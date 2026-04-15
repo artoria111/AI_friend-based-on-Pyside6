@@ -1,8 +1,6 @@
 import ctypes
 import json
-import os
 import random
-import sys
 
 import soundfile as sf
 import numpy as np
@@ -12,6 +10,7 @@ from PySide6.QtGui import QAction, QContextMenuEvent, QMouseEvent, QPixmap, QIco
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon, QPushButton, QHBoxLayout, QWidget, \
     QSlider, QWidgetAction
+from llama_cpp import Llama
 
 from workers import LLMWorker, TTSWorker
 from widgets import Live2DWidget, FloatingBubble
@@ -47,6 +46,19 @@ class ImageWindow(QMainWindow):
         base_dir = get_base_path()
         model_path = os.path.join(base_dir, self.config["live2d"]["model_path"])
         icon_path = os.path.join(base_dir, self.config["live2d"]["icon_path"])
+        llm_path = os.path.join(base_dir, self.config["live2d"]["llm_path"])
+
+        print("🧠 正在将魔法少女的大脑装载进显存...")
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"找不到模型文件：{model_path}")
+        self.llm = Llama(
+            model_path=llm_path,
+            n_gpu_layers=-1,  # 全塞进显卡
+            n_ctx=2048,  # 记忆长度
+            verbose=False  # 关掉底层啰嗦的 C++ 日志，保持控制台清爽
+        )
+        print("🧠 大脑装载完毕！")
+
         self.view = Live2DWidget(model_path, self.config,self)
         self.setCentralWidget(self.view)
         w=config['window']['width']
@@ -94,7 +106,7 @@ class ImageWindow(QMainWindow):
         self.volume_data = [] 
         self.lip_sync_timer = QTimer(self)
         self.lip_sync_timer.timeout.connect(self.update_lip_sync)
-        self._init_tray_icon()
+        self._init_tray_icon(icon_path)
 
     def speak_text(self, text):
         """触发配音并播放"""
@@ -156,7 +168,7 @@ class ImageWindow(QMainWindow):
         secret_prompt = (f"【系统内部指令，无需回复此提示】我当前正在操作的屏幕窗口标题"
                          f"是：'{window_title}'。请根据这个窗口的名字，用你的人设，"
                          f"主动弹出来吐槽我一句。字数严格控制在20字以内！直接说吐槽的话！")
-        temp_worker = LLMWorker(secret_prompt,self.config)
+        temp_worker = LLMWorker(secret_prompt,self.config,self.llm)
 
         def on_chatter_response(reply):
             self.bubble.show_text(reply, user_text="")
@@ -266,7 +278,7 @@ class ImageWindow(QMainWindow):
         if len(self.chat_memory) > 21:
             self.chat_memory = [self.chat_memory[0]] + self.chat_memory[-20:]
         self.save_memory()
-        worker = LLMWorker(self.chat_memory,self.config)
+        worker = LLMWorker(self.chat_memory,self.config,self.llm)
 
 
         def on_llm_response(reply):
@@ -473,9 +485,9 @@ class ImageWindow(QMainWindow):
             if hasattr(self, 'view'):
                 self.view.mouth_open = 0.0
 
-    def _init_tray_icon(self):
+    def _init_tray_icon(self, icon_path=None):
         self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon(self.config["live2d"]["ico_path"]))
+        self.tray_icon.setIcon(QIcon(icon_path))
 
         tray_menu = QMenu()
         self.action_toggle_visibility = QAction("✨ 显示/隐藏", self)

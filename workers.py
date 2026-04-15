@@ -116,10 +116,10 @@ class VoiceWorker(QThread):
 
 class LLMWorker(QThread):
     response_ready = Signal(str)
-
-    def __init__(self, input_data,config):
+    def __init__(self, input_data, config, llm):
         super().__init__()
         self.config = config
+        self.llm = llm
 
         if isinstance(input_data, list):
             self.messages = input_data
@@ -131,18 +131,14 @@ class LLMWorker(QThread):
             ]
 
     def run(self):
-        url = "http://localhost:11434/api/chat"
-        payload = {
-            "model": self.config["live2d"]["llm_model"],
-            "messages": self.messages,
-            "stream": False
-        }
         try:
-            response = requests.post(url, json=payload)
-            response.raise_for_status()
-            reply = response.json().get("message", {}).get("content", "脑电波没接通...")
+            response = self.llm.create_chat_completion(
+                messages=self.messages,
+                max_tokens=self.config.get("live2d", {}).get("max_tokens", 100),  # 限制字数
+                temperature=self.config.get("live2d", {}).get("temperature", 0.7)  # 活跃度
+            )
+            reply = response["choices"][0]["message"]["content"]
             self.response_ready.emit(reply)
-        except requests.exceptions.ConnectionError:
-            self.response_ready.emit("没网了！你是想饿死我吗！")
+
         except Exception as e:
-            self.response_ready.emit(f"卡壳了：{str(e)}")
+            self.response_ready.emit(f"大脑短路了喵：{str(e)}")

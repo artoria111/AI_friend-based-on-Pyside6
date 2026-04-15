@@ -14,7 +14,7 @@ live2d:
   random_chatter: 1 #随机语音触发时间
   model_path: "model/mao_pro_zh/runtime/mao_pro.model3.json" #模型路径
   text_language: "zh" #人物语言
-  llm_model: "qwen2.5:7b" #大语言模型
+  llm_path: "model/qwen2.5-3b-instruct-q4_k_m.gguf"
   tts_engine: "edge-tts" #语言引擎（目前仅支持edge-tts和sovits）
   url: "http://127.0.0.1:9880/" #sovits的api地址
   scale: 1.0          # 画面缩放比例（防截断）
