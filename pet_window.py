@@ -71,7 +71,7 @@ class ImageWindow(QMainWindow):
         # 阶段 3：附加 UI 组件 (穿搭外衣)
         # ==========================================
         # 1. 悬浮气泡
-        self.bubble = FloatingBubble()
+        self.bubble = FloatingBubble(self)
         self.bubble.text_submitted.connect(self.handle_bubble_text)
         self.bubble.btn_close.clicked.connect(self.close_bubble_action)
 

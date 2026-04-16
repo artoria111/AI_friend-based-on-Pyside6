@@ -5,18 +5,26 @@
     },
     {
         "role": "user",
-        "content": "你好"
+        "content": "5秒后提醒我喝水"
     },
     {
         "role": "assistant",
-        "content": "你好～"
+        "content": "[ALARM:5] 五秒后我会提醒你喝水！"
     },
     {
         "role": "user",
-        "content": "你好"
+        "content": "晚上好"
     },
     {
         "role": "assistant",
-        "content": "你好～"
+        "content": "晚上好～"
+    },
+    {
+        "role": "user",
+        "content": "晚上好。"
+    },
+    {
+        "role": "assistant",
+        "content": "晚上好～"
     }
 ]

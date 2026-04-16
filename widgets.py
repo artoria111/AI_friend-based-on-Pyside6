@@ -154,12 +154,18 @@ class FloatingBubble(QWidget):
         main_layout.addWidget(self.container)
 
     def start_voice_input(self):
+        main_window = self.parent()
+        if not main_window or main_window.whisper is None:
+            self.input.setPlaceholderText("耳朵还没加载完喵，等一下！")
+            return
+
         self.is_recording = True
         self.input.clear()
         self.input.setPlaceholderText("竖起耳朵聆听中...")
         self.btn_voice.setEnabled(False)  # 防止狂点录音
         self.btn_voice.setStyleSheet("background-color: #FFB6C1; border-radius: 18px; color: white;")
-        self.voice_worker = VoiceWorker()
+
+        self.voice_worker = VoiceWorker(main_window.whisper)
 
         def on_voice_success(text):
             self.reset_voice_ui()

@@ -70,7 +70,11 @@ class VoiceWorker(QThread):
     finished = Signal(str)
     error = Signal(str)
 
-    def run(self, whisper_model=None):
+    def __init__(self, whisper_model):
+        super().__init__()
+        self.whisper_model = whisper_model
+
+    def run(self):
         recognizer = sr.Recognizer()
         temp_file = f"temp_record_{int(time.time())}.wav"
 
@@ -81,7 +85,7 @@ class VoiceWorker(QThread):
                 with open(temp_file, "wb") as f:
                     f.write(audio.get_wav_data())
 
-                segments, info = whisper_model.transcribe(
+                segments, info = self.whisper_model.transcribe(
                     temp_file,
                     beam_size=5,
                     language="zh",
@@ -108,6 +112,7 @@ class VoiceWorker(QThread):
                         print(f"[保洁] 已清理临时录音文件: {temp_file}")
                     except Exception as e:
                         print(f"清理临时录音文件失败: {e}")
+
 
 class LLMWorker(QThread):
     response_ready = Signal(str)
@@ -187,7 +192,6 @@ from PySide6.QtCore import QThread, Signal
 
 
 class WhisperLoaderThread(QThread):
-    # 装载完毕后，把耳朵（Whisper模型对象）交出来
     whisper_ready = Signal(object)
     error_occurred = Signal(str)
 
