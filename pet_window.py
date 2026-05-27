@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon,
     QSlider, QWidgetAction, QProgressBar
 
 
-from workers import LLMWorker, TTSWorker, BrainLoaderThread, WhisperLoaderThread
+from workers import LLMWorker, TTSWorker, BrainLoaderThread, WhisperLoaderThread, MemoryLoaderThread
 from widgets import Live2DWidget, FloatingBubble
 
 import sys
@@ -43,6 +43,7 @@ class ImageWindow(QMainWindow):
         self.system_prompt = {"role": "system", "content": config["prompt"]["content"]}
         self.chat_memory = self.load_memory()
         self.tts_engine = self.config["live2d"]["tts_engine"]
+        self.memory_manager = None
 
         base_dir = get_base_path()
         model_path = os.path.join(base_dir, self.config["live2d"]["model_path"])
@@ -149,6 +150,7 @@ class ImageWindow(QMainWindow):
             if hasattr(self, 'progress_bar'):
                 self.progress_bar.hide()
             print("✨ 云端api已接通")
+            self._start_memory_loader()
             if hasattr(self, 'auto_close_timer'):
                 self.auto_close_timer.start(5000)
         else:
@@ -221,7 +223,21 @@ class ImageWindow(QMainWindow):
         secret_prompt = (f"【系统内部指令，无需回复此提示】我当前正在操作的屏幕窗口标题"
                          f"是：'{window_title}'。请根据这个窗口的名字，用你的人设，"
                          f"主动弹出来吐槽我一句。字数严格控制在20字以内！直接说吐槽的话！")
-        temp_worker = LLMWorker(secret_prompt,self.config,self.llm)
+
+        chatter_messages = [
+            {"role": "system", "content": self.config["prompt"]["content"]},
+        ]
+        if self.memory_manager is not None:
+            try:
+                memories = self.memory_manager.retrieve(window_title)
+                if memories:
+                    context = self.memory_manager.format_context(memories)
+                    chatter_messages[0]["content"] += "\n\n" + context
+            except Exception as e:
+                print(f"[Memory] 检索失败: {e}")
+
+        chatter_messages.append({"role": "user", "content": secret_prompt})
+        temp_worker = LLMWorker(chatter_messages, self.config, self.llm)
 
         def on_chatter_response(reply):
             self.bubble.show_text(reply, user_text="")
@@ -317,6 +333,11 @@ class ImageWindow(QMainWindow):
     def clear_memory(self):
         self.chat_memory = [self.system_prompt]
         self.save_memory()
+        if self.memory_manager is not None:
+            try:
+                self.memory_manager.clear_all()
+            except Exception as e:
+                print(f"[Memory] 清空失败: {e}")
         self.bubble.show_text("叮~ 记忆已格式化！刚才发生了什么？我突然什么都不记得了！", user_text=None)
         self.update_bubble_position()
 
@@ -335,7 +356,26 @@ class ImageWindow(QMainWindow):
         if len(self.chat_memory) > 21:
             self.chat_memory = [self.chat_memory[0]] + self.chat_memory[-20:]
         self.save_memory()
-        worker = LLMWorker(self.chat_memory,self.config,self.llm)
+
+        # RAG: retrieve relevant long-term memories and inject into context
+        messages = list(self.chat_memory)
+        if self.memory_manager is not None:
+            try:
+                memories = self.memory_manager.retrieve(text)
+                if memories:
+                    print(f"[Memory] 检索到 {len(memories)} 条记忆: {memories}")
+                    context = self.memory_manager.format_context(memories)
+                    sys_msg = dict(messages[0])
+                    sys_msg["content"] = sys_msg["content"] + "\n\n" + context
+                    messages[0] = sys_msg
+                else:
+                    print(f"[Memory] 检索完成，未找到相关记忆 (总记忆数: {self.memory_manager.get_stats()['total']})")
+            except Exception as e:
+                print(f"[Memory] 检索失败: {e}")
+        else:
+            print("[Memory] 记忆系统未就绪，跳过检索")
+
+        worker = LLMWorker(messages, self.config, self.llm)
 
 
         def on_llm_response(reply):
@@ -348,9 +388,23 @@ class ImageWindow(QMainWindow):
                 except:
                     display_reply = reply
 
-            elif reply.startswith("[MEMO]"):
-                display_reply = reply.replace("[MEMO]", "").strip()
+            elif reply.startswith("[MEMO"):
+                if reply.startswith("[MEMO:"):
+                    # Format: [MEMO:fact]reply_text
+                    close = reply.find("]")
+                    fact = reply[6:close].strip()
+                    display_reply = reply[close+1:].strip() + " ✅"
+                else:
+                    # Legacy format: [MEMO]reply_text
+                    display_reply = reply[6:].strip()
+                    fact = text
                 self.save_to_diary(text)
+                if self.memory_manager is not None and fact:
+                    try:
+                        self.memory_manager.add_memory(fact)
+                        print(f"[Memory] 已存储: {fact}")
+                    except Exception as e:
+                        print(f"[Memory] 存储失败: {e}")
 
             else:
                 display_reply = reply
@@ -634,6 +688,7 @@ class ImageWindow(QMainWindow):
 
     def on_brain_loaded(self, loaded_llm):
         self.llm = loaded_llm
+        self._start_memory_loader()
 
         # 👉 核心防暗杀机制：不许立刻 hide！
         # 强制把动画目标设为 100，并启动
@@ -656,6 +711,28 @@ class ImageWindow(QMainWindow):
 
     def on_brain_error(self, error_msg):
         self.bubble.show_text(f"😵 完蛋了：{error_msg}", user_text="")
+
+    def _start_memory_loader(self):
+        mem_config = self.config.get("memory", {})
+        if not mem_config.get("enabled", True):
+            return
+        self.memory_loader = MemoryLoaderThread(
+            llm_client=self.llm,
+            llm_config=self.config.get("llm", {}),
+            retrieval_k=mem_config.get("retrieval_k", 3),
+            llm_mode=self.llm_mode,
+            embed_mode=mem_config.get("embed_mode", "local")
+        )
+        self.memory_loader.memory_ready.connect(self.on_memory_loaded)
+        self.memory_loader.error_occurred.connect(self.on_memory_error)
+        self.memory_loader.start()
+
+    def on_memory_loaded(self, memory_manager):
+        self.memory_manager = memory_manager
+
+    def on_memory_error(self, error_msg):
+        print(f"[Memory] 记忆系统加载失败，降级为原始模式: {error_msg}")
+        self.memory_manager = None
 
     def on_progress_update(self, progress_val):
         percent = int(progress_val * 100)

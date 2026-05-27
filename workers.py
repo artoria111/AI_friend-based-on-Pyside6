@@ -203,12 +203,9 @@ class WhisperLoaderThread(QThread):
 
     def run(self):
         try:
-            # 👉 绝对核心：延迟导入！把这句从文件最上面挪到这里来！
             from faster_whisper import WhisperModel
 
             print("👂 后台线程：开始加载听觉神经 (Whisper)...")
-
-            # 初始化模型（这里可能会耗时几秒到十几秒）
             whisper_model = WhisperModel(
                 self.model_size,
                 device=self.device,
@@ -216,8 +213,36 @@ class WhisperLoaderThread(QThread):
             )
 
             print("👂 后台线程：听觉神经加载完毕！")
-            # 把耳朵递给主窗口
             self.whisper_ready.emit(whisper_model)
 
         except Exception as e:
             self.error_occurred.emit(f"听觉神经加载失败：{str(e)}")
+
+
+class MemoryLoaderThread(QThread):
+    memory_ready = Signal(object)
+    error_occurred = Signal(str)
+
+    def __init__(self, llm_client=None, llm_config=None, retrieval_k=3, llm_mode="api", embed_mode="local"):
+        super().__init__()
+        self.llm_client = llm_client
+        self.llm_config = llm_config
+        self.retrieval_k = retrieval_k
+        self.llm_mode = llm_mode
+        self.embed_mode = embed_mode
+
+    def run(self):
+        try:
+            from memory_manager import MemoryManager
+            print(f"🧠 后台线程：开始加载记忆系统 (ChromaDB, embed={self.embed_mode})...")
+            mem = MemoryManager(
+                llm_client=self.llm_client,
+                llm_config=self.llm_config,
+                retrieval_k=self.retrieval_k,
+                llm_mode=self.llm_mode,
+                embed_mode=self.embed_mode
+            )
+            print("🧠 后台线程：记忆系统加载完毕！")
+            self.memory_ready.emit(mem)
+        except Exception as e:
+            self.error_occurred.emit(f"记忆系统加载失败：{str(e)}")

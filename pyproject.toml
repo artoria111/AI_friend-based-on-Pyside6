@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.10"
 dependencies = [
+    "chromadb>=1.5.9",
     "edge-tts>=7.2.8",
     "faster-whisper>=1.2.1",
     "live2d-py>=0.6.1.1",
@@ -13,6 +14,7 @@ dependencies = [
     "pyside6>=6.10.2",
     "pyyaml>=6.0.3",
     "requests>=2.32.5",
+    "sentence-transformers>=5.5.1",
     "soundfile>=0.13.1",
     "speechrecognition>=3.15.1",
 ]
