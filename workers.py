@@ -223,26 +223,28 @@ class MemoryLoaderThread(QThread):
     memory_ready = Signal(object)
     error_occurred = Signal(str)
 
-    def __init__(self, llm_client=None, llm_config=None, retrieval_k=3, llm_mode="api", embed_mode="local"):
+    def __init__(self, llm_client=None, llm_config=None, retrieval_k=3, llm_mode="api", embed_mode="local", summary_interval=5):
         super().__init__()
         self.llm_client = llm_client
         self.llm_config = llm_config
         self.retrieval_k = retrieval_k
         self.llm_mode = llm_mode
         self.embed_mode = embed_mode
+        self.summary_interval = summary_interval
 
     def run(self):
         try:
             from memory_manager import MemoryManager
-            print(f"🧠 后台线程：开始加载记忆系统 (ChromaDB, embed={self.embed_mode})...")
+            print(f"🧠 后台线程：开始加载三层记忆系统 (ChromaDB, embed={self.embed_mode})...")
             mem = MemoryManager(
                 llm_client=self.llm_client,
                 llm_config=self.llm_config,
                 retrieval_k=self.retrieval_k,
                 llm_mode=self.llm_mode,
-                embed_mode=self.embed_mode
+                embed_mode=self.embed_mode,
+                summary_interval=self.summary_interval
             )
-            print("🧠 后台线程：记忆系统加载完毕！")
+            print("🧠 后台线程：三层记忆系统加载完毕！")
             self.memory_ready.emit(mem)
         except Exception as e:
             self.error_occurred.emit(f"记忆系统加载失败：{str(e)}")

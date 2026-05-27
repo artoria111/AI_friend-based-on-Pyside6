@@ -25,15 +25,16 @@ live2d:
 llm:
   mode: "api"
   local_path: "models/qwen2.5-3b-instruct-q4_k_m.gguf"
-  api_url: "https://api.siliconflow.cn/v1"
-  api_key: "sk-slgzltoeimsadsyoeyacwpiddvvxuigmhrzywttqylfjteyq"
-  api_model: "Qwen/Qwen2.5-7B-Instruct"
+  api_url: "https://api.deepseek.com"
+  api_key: "sk-69778e8f5b844a288d56a4d07bedb5d8"
+  api_model: "deepseek-v4-pro"
 
 memory:
   enabled: true
   retrieval_k: 3           # 每次检索的记忆条数
   embed_mode: "local"       # local=ModelScope下载(推荐), api=调用LLM API
   auto_extract: true
+  summary_interval: 5      # 每N轮对话自动生成情节摘要
 
 prompt:
   content: |

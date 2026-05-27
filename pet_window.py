@@ -44,6 +44,7 @@ class ImageWindow(QMainWindow):
         self.chat_memory = self.load_memory()
         self.tts_engine = self.config["live2d"]["tts_engine"]
         self.memory_manager = None
+        self.turns_since_summary = 0
 
         base_dir = get_base_path()
         model_path = os.path.join(base_dir, self.config["live2d"]["model_path"])
@@ -229,9 +230,9 @@ class ImageWindow(QMainWindow):
         ]
         if self.memory_manager is not None:
             try:
-                memories = self.memory_manager.retrieve(window_title)
-                if memories:
-                    context = self.memory_manager.format_context(memories)
+                retrieval = self.memory_manager.retrieve_all(window_title)
+                if retrieval["facts"] or retrieval["episodes"]:
+                    context = self.memory_manager.format_context(retrieval)
                     chatter_messages[0]["content"] += "\n\n" + context
             except Exception as e:
                 print(f"[Memory] 检索失败: {e}")
@@ -357,19 +358,21 @@ class ImageWindow(QMainWindow):
             self.chat_memory = [self.chat_memory[0]] + self.chat_memory[-20:]
         self.save_memory()
 
-        # RAG: retrieve relevant long-term memories and inject into context
+        # RAG: retrieve from all memory layers and inject into context
         messages = list(self.chat_memory)
         if self.memory_manager is not None:
             try:
-                memories = self.memory_manager.retrieve(text)
-                if memories:
-                    print(f"[Memory] 检索到 {len(memories)} 条记忆: {memories}")
-                    context = self.memory_manager.format_context(memories)
-                    sys_msg = dict(messages[0])
-                    sys_msg["content"] = sys_msg["content"] + "\n\n" + context
-                    messages[0] = sys_msg
+                retrieval = self.memory_manager.retrieve_all(text)
+                if retrieval["facts"] or retrieval["episodes"]:
+                    stats = self.memory_manager.get_stats()
+                    print(f"[Memory] 检索: 事实{retrieval['facts']}, 情节{retrieval['episodes']} (总事实:{stats['facts']} 总情节:{stats['episodes']})")
+                    context = self.memory_manager.format_context(retrieval)
+                    if context:
+                        sys_msg = dict(messages[0])
+                        sys_msg["content"] = sys_msg["content"] + "\n\n" + context
+                        messages[0] = sys_msg
                 else:
-                    print(f"[Memory] 检索完成，未找到相关记忆 (总记忆数: {self.memory_manager.get_stats()['total']})")
+                    print(f"[Memory] 检索完成，无相关记忆")
             except Exception as e:
                 print(f"[Memory] 检索失败: {e}")
         else:
@@ -401,7 +404,7 @@ class ImageWindow(QMainWindow):
                 self.save_to_diary(text)
                 if self.memory_manager is not None and fact:
                     try:
-                        self.memory_manager.add_memory(fact)
+                        self.memory_manager.add_fact(fact)
                         print(f"[Memory] 已存储: {fact}")
                     except Exception as e:
                         print(f"[Memory] 存储失败: {e}")
@@ -416,6 +419,14 @@ class ImageWindow(QMainWindow):
                 self.view.trigger_action("")
             self.chat_memory.append({"role": "assistant", "content": reply})
             self.save_memory()
+
+            # Layer 3: auto-summarize conversations into episodic memory
+            self.turns_since_summary += 1
+            if self.memory_manager is not None and self.turns_since_summary >= self.summary_interval:
+                recent = self.chat_memory[-(self.summary_interval * 2):]  # N user+assistant pairs
+                self.memory_manager.summarize_and_store(recent)
+                self.turns_since_summary = 0
+
             if worker in self.llm_workers:
                 self.llm_workers.remove(worker)
 
@@ -716,12 +727,14 @@ class ImageWindow(QMainWindow):
         mem_config = self.config.get("memory", {})
         if not mem_config.get("enabled", True):
             return
+        self.summary_interval = mem_config.get("summary_interval", 5)
         self.memory_loader = MemoryLoaderThread(
             llm_client=self.llm,
             llm_config=self.config.get("llm", {}),
             retrieval_k=mem_config.get("retrieval_k", 3),
             llm_mode=self.llm_mode,
-            embed_mode=mem_config.get("embed_mode", "local")
+            embed_mode=mem_config.get("embed_mode", "local"),
+            summary_interval=self.summary_interval
         )
         self.memory_loader.memory_ready.connect(self.on_memory_loaded)
         self.memory_loader.error_occurred.connect(self.on_memory_error)
