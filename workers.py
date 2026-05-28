@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import time
@@ -8,14 +9,15 @@ import requests
 from PySide6.QtCore import QThread, Signal
 import speech_recognition as sr
 
+
 class TTSWorker(QThread):
     finished = Signal(str)
 
-    def __init__(self, config,text,engine="edge-tts"):
+    def __init__(self, config, text, engine="edge-tts"):
         super().__init__()
         self.text = text
-        self.engine=engine
-        self.base_filename= os.path.abspath(f"temp_voice_{int(time.time())}")
+        self.engine = engine
+        self.base_filename = os.path.abspath(f"temp_voice_{int(time.time())}")
         self.config = config
 
     def run(self):
@@ -27,16 +29,16 @@ class TTSWorker(QThread):
         if not clean_text:
             return
 
-        if self.engine=="edge-tts":
+        if self.engine == "edge-tts":
             self._run_edge_tts(clean_text)
-        elif self.engine=="sovits":
+        elif self.engine == "sovits":
             self._run_sovits(clean_text)
 
     def _run_edge_tts(self, text):
-        output_file=f"{self.base_filename}.mp3"
+        output_file = f"{self.base_filename}.mp3"
         try:
             async def _generate():
-                tts=edge_tts.Communicate(text,"zh-CN-XiaoyiNeural")
+                tts = edge_tts.Communicate(text, "zh-CN-XiaoyiNeural")
                 await tts.save(output_file)
             asyncio.run(_generate())
             self.finished.emit(output_file)
@@ -44,21 +46,17 @@ class TTSWorker(QThread):
             print(f"Edge-TTS 引擎故障:{e}")
 
     def _run_sovits(self, text):
-        output_file=f"{self.base_filename}.wav"
+        output_file = f"{self.base_filename}.wav"
         try:
             url = self.config["live2d"]["url"]
             payload = {
                 "text": text,
                 "text_language": self.config["live2d"]["text_language"]
-                # "ref_audio_path": "D:/GPT-SoVITS/参考音频.wav",
-                # "prompt_text": "这是参考音频里面说的话哦",
-                # "prompt_lang": "zh"
             }
             response = requests.post(url, json=payload)
-            response.raise_for_status()  # 检查有没有报错
+            response.raise_for_status()
             with open(output_file, "wb") as f:
                 f.write(response.content)
-
             self.finished.emit(output_file)
         except requests.exceptions.ConnectionError:
             print("\n❌ SoVITS 后台没开！我成哑巴了")
@@ -109,18 +107,20 @@ class VoiceWorker(QThread):
                 if os.path.exists(temp_file):
                     try:
                         os.remove(temp_file)
-                        print(f"[保洁] 已清理临时录音文件: {temp_file}")
-                    except Exception as e:
-                        print(f"清理临时录音文件失败: {e}")
+                    except Exception:
+                        pass
 
 
 class LLMWorker(QThread):
     response_ready = Signal(str)
-    def __init__(self, input_data, config, llm):
+    alarm_requested = Signal(int, str)  # seconds, message
+
+    def __init__(self, input_data, config, llm, memory_manager=None):
         super().__init__()
         self.config = config
         self.llm = llm
         self.llm_mode = self.config.get("llm", {}).get("mode", "local")
+        self.memory_manager = memory_manager
 
         if isinstance(input_data, list):
             self.messages = input_data
@@ -131,30 +131,80 @@ class LLMWorker(QThread):
                 {"role": "user", "content": str(input_data)}
             ]
 
+    def _execute_tool(self, name: str, args: dict) -> str:
+        from tools import execute
+        return execute(
+            name, args,
+            memory_manager=self.memory_manager,
+            alarm_callback=lambda s, m: self.alarm_requested.emit(s, m)
+        )
+
     def run(self):
+        from tools import TOOLS
+
+        messages = list(self.messages)
+
         try:
-            if self.llm_mode == "api":
-                response = self.llm.chat.completions.create(
-                    model=self.config["llm"]["api_model"],
-                    messages=self.messages,
-                    temperature=0.7
-                )
-                # 提取回复内容
-                reply = response.choices[0].message.content
-            else:
-                response = self.llm.create_chat_completion(
-                    messages=self.messages,
-                    max_tokens=self.config.get("live2d", {}).get("max_tokens", 100),
-                    temperature=self.config.get("live2d", {}).get("temperature", 0.7)
-                )
-                reply = response["choices"][0]["message"]["content"]
-            self.response_ready.emit(reply)
+            for _ in range(5):  # max 5 tool-call rounds
+                if self.llm_mode == "api":
+                    response = self.llm.chat.completions.create(
+                        model=self.config["llm"]["api_model"],
+                        messages=messages,
+                        tools=TOOLS,
+                        temperature=0.7
+                    )
+                    msg = response.choices[0].message
+
+                    if msg.tool_calls:
+                        # Record assistant message with tool_calls
+                        assistant_msg = {"role": "assistant", "content": msg.content or ""}
+                        rc = getattr(msg, "reasoning_content", None)
+                        if rc:
+                            assistant_msg["reasoning_content"] = rc
+                        tc_list = []
+                        for tc in msg.tool_calls:
+                            tc_list.append({
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments
+                                }
+                            })
+                        assistant_msg["tool_calls"] = tc_list
+                        messages.append(assistant_msg)
+
+                        # Execute each tool and append results
+                        for tc in msg.tool_calls:
+                            args = json.loads(tc.function.arguments)
+                            result = self._execute_tool(tc.function.name, args)
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": result
+                            })
+
+                        continue  # send back to LLM for final response
+
+                    else:
+                        reply = msg.content or ""
+                        self.response_ready.emit(reply)
+                        return
+
+                else:
+                    # Local mode: no native tool calling, keep simple chat
+                    response = self.llm.create_chat_completion(
+                        messages=messages,
+                        max_tokens=self.config.get("live2d", {}).get("max_tokens", 100),
+                        temperature=self.config.get("live2d", {}).get("temperature", 0.7)
+                    )
+                    reply = response["choices"][0]["message"]["content"]
+                    self.response_ready.emit(reply)
+                    return
 
         except Exception as e:
             self.response_ready.emit(f"大脑短路了喵：{str(e)}")
 
-
-from PySide6.QtCore import QThread, Signal
 
 class BrainLoaderThread(QThread):
     brain_ready = Signal(object)
@@ -173,7 +223,6 @@ class BrainLoaderThread(QThread):
                 return None
 
             print("🧠 后台线程：开始搬运大脑到显卡...")
-            # 这里的耗时操作不会卡住界面了
             llm = Llama(
                 model_path=self.model_path,
                 n_gpu_layers=-1,
@@ -183,12 +232,9 @@ class BrainLoaderThread(QThread):
                 progress_callback=my_progress_callback
             )
             print("🧠 后台线程：大脑搬运完毕！")
-            self.brain_ready.emit(llm) # 把大脑递给主窗口
+            self.brain_ready.emit(llm)
         except Exception as e:
             self.error_occurred.emit(f"脑电波连接失败：{str(e)}")
-
-
-from PySide6.QtCore import QThread, Signal
 
 
 class WhisperLoaderThread(QThread):
@@ -211,10 +257,8 @@ class WhisperLoaderThread(QThread):
                 device=self.device,
                 compute_type=self.compute_type
             )
-
             print("👂 后台线程：听觉神经加载完毕！")
             self.whisper_ready.emit(whisper_model)
-
         except Exception as e:
             self.error_occurred.emit(f"听觉神经加载失败：{str(e)}")
 
@@ -223,7 +267,8 @@ class MemoryLoaderThread(QThread):
     memory_ready = Signal(object)
     error_occurred = Signal(str)
 
-    def __init__(self, llm_client=None, llm_config=None, retrieval_k=3, llm_mode="api", embed_mode="local", summary_interval=5):
+    def __init__(self, llm_client=None, llm_config=None, retrieval_k=3, llm_mode="api",
+                 embed_mode="local", summary_interval=5):
         super().__init__()
         self.llm_client = llm_client
         self.llm_config = llm_config

@@ -238,7 +238,7 @@ class ImageWindow(QMainWindow):
                 print(f"[Memory] 检索失败: {e}")
 
         chatter_messages.append({"role": "user", "content": secret_prompt})
-        temp_worker = LLMWorker(chatter_messages, self.config, self.llm)
+        temp_worker = LLMWorker(chatter_messages, self.config, self.llm, self.memory_manager)
 
         def on_chatter_response(reply):
             self.bubble.show_text(reply, user_text="")
@@ -378,34 +378,36 @@ class ImageWindow(QMainWindow):
         else:
             print("[Memory] 记忆系统未就绪，跳过检索")
 
-        worker = LLMWorker(messages, self.config, self.llm)
-
+        worker = LLMWorker(messages, self.config, self.llm, self.memory_manager)
+        worker.alarm_requested.connect(
+            lambda s, m: QTimer.singleShot(s * 1000, lambda: self.show_reminder(m))
+        )
 
         def on_llm_response(reply):
+            # [MEMO] / [ALARM] tags from local-mode LLM fallback
             if reply.startswith("[ALARM:"):
                 try:
                     seconds = int(reply.split(":")[1].split("]")[0])
                     msg = reply.split("]")[1].strip()
-                    QTimer.singleShot(seconds * 1000, lambda: self.trigger_hardcore_reminder(msg))
+                    QTimer.singleShot(seconds * 1000, lambda: self.show_reminder(msg))
                     display_reply = msg
                 except:
                     display_reply = reply
 
             elif reply.startswith("[MEMO"):
+                # Local-mode fallback: store manually
                 if reply.startswith("[MEMO:"):
-                    # Format: [MEMO:fact]reply_text
                     close = reply.find("]")
                     fact = reply[6:close].strip()
                     display_reply = reply[close+1:].strip() + " ✅"
                 else:
-                    # Legacy format: [MEMO]reply_text
                     display_reply = reply[6:].strip()
                     fact = text
                 self.save_to_diary(text)
                 if self.memory_manager is not None and fact:
                     try:
                         self.memory_manager.add_fact(fact)
-                        print(f"[Memory] 已存储: {fact}")
+                        print(f"[Memory] 已存储(legacy): {fact}")
                     except Exception as e:
                         print(f"[Memory] 存储失败: {e}")
 
@@ -542,15 +544,11 @@ class ImageWindow(QMainWindow):
         with open(self.diary_file, "w", encoding="utf-8") as f:
             json.dump(diary_data, f, ensure_ascii=False, indent=4)
 
-    def trigger_hardcore_reminder(self, msg):
-        screen = QApplication.primaryScreen().geometry()
-        self.move(screen.center() - self.rect().center())
-
-        reminder_text = f"时间到了！该去‘{msg}’了！我会一直盯着你的>_<"
+    def show_reminder(self, msg):
+        reminder_text = f"⏰ 提醒时间到！该「{msg}」了～"
         self.bubble.show_text(reminder_text, user_text="")
-        self.bubble.btn_close.hide()
-
-        self.bubble.input.setPlaceholderText("输入‘我知道了’解除霸屏...")
+        self.update_bubble_position()
+        self.auto_close_timer.start(15000)
 
     def set_initial_position(self):
         screen_geo = QApplication.primaryScreen().availableGeometry()
