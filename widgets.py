@@ -71,6 +71,14 @@ class Live2DWidget(QOpenGLWidget):
         if self.model:
             self.model.StartRandomMotion(motion_group, 3)
 
+    def set_expression(self, expression_name: str):
+        if self.model:
+            try:
+                self.model.SetExpression(expression_name)
+                print(f"[Expression] 表情切换: {expression_name}")
+            except Exception as e:
+                print(f"[Expression] 表情设置失败({expression_name}): {e}")
+
 
 class FloatingBubble(QWidget):
     text_submitted = Signal(str)

@@ -64,6 +64,28 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "set_mood",
+            "description": "当感知到主人的情绪变化时调用。根据主人的话语内容、语气、用词来判断情绪状态。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mood": {
+                        "type": "string",
+                        "enum": ["happy", "excited", "sad", "worried", "angry", "tired", "bored", "neutral"],
+                        "description": "主人的当前情绪"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "判断依据，例如「主人说今天涨工资了」「主人看起来很累」"
+                    }
+                },
+                "required": ["mood"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_time",
             "description": "获取当前日期和时间。当用户询问时间、日期，或需要基于当前时间回答问题时调用。",
             "parameters": {
@@ -76,7 +98,7 @@ TOOLS = [
 ]
 
 
-def execute(name: str, args: dict, memory_manager=None, alarm_callback=None) -> str:
+def execute(name: str, args: dict, memory_manager=None, alarm_callback=None, mood_tracker=None) -> str:
     """Execute a tool call and return the result as a JSON string."""
 
     if name == "write_memory":
@@ -112,6 +134,17 @@ def execute(name: str, args: dict, memory_manager=None, alarm_callback=None) -> 
             {"found": bool(facts or episodes), "facts": facts, "episodes": episodes},
             ensure_ascii=False
         )
+
+    elif name == "set_mood":
+        mood = args.get("mood", "").strip().lower()
+        reason = args.get("reason", "").strip()
+        valid_moods = {"happy", "excited", "sad", "worried", "angry", "tired", "bored", "neutral"}
+        if mood not in valid_moods:
+            return json.dumps({"ok": False, "error": f"无效情绪: {mood}"}, ensure_ascii=False)
+        if mood_tracker:
+            mood_tracker.record(mood, reason)
+        print(f"[Tool] set_mood: {mood}" + (f" (原因: {reason})" if reason else ""))
+        return json.dumps({"ok": True, "mood": mood}, ensure_ascii=False)
 
     elif name == "get_time":
         now = datetime.now()

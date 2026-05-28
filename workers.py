@@ -115,12 +115,13 @@ class LLMWorker(QThread):
     response_ready = Signal(str)
     alarm_requested = Signal(int, str)  # seconds, message
 
-    def __init__(self, input_data, config, llm, memory_manager=None):
+    def __init__(self, input_data, config, llm, memory_manager=None, mood_tracker=None):
         super().__init__()
         self.config = config
         self.llm = llm
         self.llm_mode = self.config.get("llm", {}).get("mode", "local")
         self.memory_manager = memory_manager
+        self.mood_tracker = mood_tracker
 
         if isinstance(input_data, list):
             self.messages = input_data
@@ -136,7 +137,8 @@ class LLMWorker(QThread):
         return execute(
             name, args,
             memory_manager=self.memory_manager,
-            alarm_callback=lambda s, m: self.alarm_requested.emit(s, m)
+            alarm_callback=lambda s, m: self.alarm_requested.emit(s, m),
+            mood_tracker=self.mood_tracker
         )
 
     def run(self):

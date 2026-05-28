@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon,
 
 from workers import LLMWorker, TTSWorker, BrainLoaderThread, WhisperLoaderThread, MemoryLoaderThread
 from widgets import Live2DWidget, FloatingBubble
+from mood_tracker import MoodTracker
 
 import sys
 import os
@@ -44,6 +45,7 @@ class ImageWindow(QMainWindow):
         self.chat_memory = self.load_memory()
         self.tts_engine = self.config["live2d"]["tts_engine"]
         self.memory_manager = None
+        self.mood_tracker = MoodTracker()
         self.turns_since_summary = 0
 
         base_dir = get_base_path()
@@ -228,6 +230,10 @@ class ImageWindow(QMainWindow):
         chatter_messages = [
             {"role": "system", "content": self.config["prompt"]["content"]},
         ]
+        # Mood context
+        mood_context = self.mood_tracker.get_context()
+        if mood_context:
+            chatter_messages[0]["content"] += "\n\n" + mood_context
         if self.memory_manager is not None:
             try:
                 retrieval = self.memory_manager.retrieve_all(window_title)
@@ -238,7 +244,7 @@ class ImageWindow(QMainWindow):
                 print(f"[Memory] 检索失败: {e}")
 
         chatter_messages.append({"role": "user", "content": secret_prompt})
-        temp_worker = LLMWorker(chatter_messages, self.config, self.llm, self.memory_manager)
+        temp_worker = LLMWorker(chatter_messages, self.config, self.llm, self.memory_manager, self.mood_tracker)
 
         def on_chatter_response(reply):
             self.bubble.show_text(reply, user_text="")
@@ -360,6 +366,11 @@ class ImageWindow(QMainWindow):
 
         # RAG: retrieve from all memory layers and inject into context
         messages = list(self.chat_memory)
+        # Mood: inject adaptive mood context
+        mood_context = self.mood_tracker.get_context()
+        sys_msg = dict(messages[0])
+        if mood_context:
+            sys_msg["content"] = sys_msg["content"] + "\n\n" + mood_context
         if self.memory_manager is not None:
             try:
                 retrieval = self.memory_manager.retrieve_all(text)
@@ -368,17 +379,16 @@ class ImageWindow(QMainWindow):
                     print(f"[Memory] 检索: 事实{retrieval['facts']}, 情节{retrieval['episodes']} (总事实:{stats['facts']} 总情节:{stats['episodes']})")
                     context = self.memory_manager.format_context(retrieval)
                     if context:
-                        sys_msg = dict(messages[0])
                         sys_msg["content"] = sys_msg["content"] + "\n\n" + context
-                        messages[0] = sys_msg
                 else:
                     print(f"[Memory] 检索完成，无相关记忆")
             except Exception as e:
                 print(f"[Memory] 检索失败: {e}")
         else:
             print("[Memory] 记忆系统未就绪，跳过检索")
+        messages[0] = sys_msg
 
-        worker = LLMWorker(messages, self.config, self.llm, self.memory_manager)
+        worker = LLMWorker(messages, self.config, self.llm, self.memory_manager, self.mood_tracker)
         worker.alarm_requested.connect(
             lambda s, m: QTimer.singleShot(s * 1000, lambda: self.show_reminder(m))
         )
@@ -419,6 +429,7 @@ class ImageWindow(QMainWindow):
             self.auto_close_timer.start(15000)
             if hasattr(self, 'view'):
                 self.view.trigger_action("")
+                self.view.set_expression(self.mood_tracker.get_expression())
             self.chat_memory.append({"role": "assistant", "content": reply})
             self.save_memory()
 
