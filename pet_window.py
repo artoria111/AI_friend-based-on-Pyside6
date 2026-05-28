@@ -47,6 +47,7 @@ class ImageWindow(QMainWindow):
         self.memory_manager = None
         self.mood_tracker = MoodTracker()
         self.turns_since_summary = 0
+        self.summary_interval = 999  # disabled until memory loader sets real value
 
         base_dir = get_base_path()
         model_path = os.path.join(base_dir, self.config["live2d"]["model_path"])
@@ -79,27 +80,28 @@ class ImageWindow(QMainWindow):
         self.bubble.text_submitted.connect(self.handle_bubble_text)
         self.bubble.btn_close.clicked.connect(self.close_bubble_action)
 
-        # 2. 进度条 (修复：让进度条根据窗口大小动态居中，而不是写死 50,200)
+        # 2. 进度条 — 粉色魔法少女主题
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
-                border: 2px solid grey;
-                border-radius: 5px;
+                border: none;
+                border-radius: 10px;
                 text-align: center;
-                color: black;
+                color: #888;
+                font-size: 11px;
                 font-weight: bold;
+                background-color: #F5E6EC;
             }
             QProgressBar::chunk {
-                background-color: #FFA500; /* 魔法少女专属橘色 */
-                width: 10px;
-                margin: 0.5px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #F8A5C2, stop:1 #E91E7B);
+                border-radius: 10px;
             }
         """)
-        self.progress_bar.setFixedSize(150, 20)
-        # 让进度条显示在桌宠脚下偏中心的位置
-        self.progress_bar.move(int((w - 150) / 2), int(0))
+        self.progress_bar.setFixedSize(160, 18)
+        self.progress_bar.move(int((w - 160) / 2), int(h * 0.02))
         self.progress_bar.show()
 
         # 3. 托盘与菜单
@@ -173,21 +175,19 @@ class ImageWindow(QMainWindow):
         self.tts_worker.start()
 
     def play_voice(self, file_path):
-        if hasattr(self, 'player'):
-            self.player.setSource(QUrl.fromLocalFile(file_path))
-            self.volume_data = self.analyze_audio_volume(file_path)
-            self.player.play()
-            self.lip_sync_timer.start(33)
         self.player.stop()
+        # Clean up previous temp file
         if self.current_audio_file and os.path.exists(self.current_audio_file):
             try:
                 os.remove(self.current_audio_file)
-            except:
+            except Exception:
                 pass
 
         self.current_audio_file = file_path
+        self.volume_data = self.analyze_audio_volume(file_path)
         self.player.setSource(QUrl.fromLocalFile(file_path))
         self.player.play()
+        self.lip_sync_timer.start(33)
 
     def get_active_window_title(self):
         try:
@@ -273,7 +273,38 @@ class ImageWindow(QMainWindow):
         self.bubble.move(bubble_x, bubble_y)
 
     def _init_main_menu(self):
+        MENU_QSS = """
+            QMenu {
+                background-color: #FFFFFF;
+                border: 1px solid #F0D0DD;
+                border-radius: 10px;
+                padding: 6px 4px;
+                font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+                font-size: 13px;
+            }
+            QMenu::item {
+                padding: 7px 28px 7px 16px;
+                border-radius: 6px;
+                margin: 1px 4px;
+                color: #3A3A3A;
+            }
+            QMenu::item:selected {
+                background-color: #FFF0F5;
+                color: #E91E7B;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #F5E6EC;
+                margin: 4px 12px;
+            }
+            QMenu::indicator {
+                width: 14px;
+                height: 14px;
+                margin-left: 8px;
+            }
+        """
         self.context_menu = QMenu(self)
+        self.context_menu.setStyleSheet(MENU_QSS)
         action_input = QAction("对话", self)
         action_clear=QAction("一键失忆",self)
         self.action_dnd = QAction("勿扰模式", self)
@@ -286,8 +317,10 @@ class ImageWindow(QMainWindow):
         layout = QHBoxLayout(vol_widget)
         layout.setContentsMargins(10, 5, 10, 5)
         self.btn_mute_main = QPushButton("🔊")
-        self.btn_mute_main.setFixedSize(24, 24)
-        self.btn_mute_main.setStyleSheet("border: none; background: transparent; font-size: 14px;")
+        self.btn_mute_main.setFixedSize(26, 26)
+        self.btn_mute_main.setCursor(Qt.PointingHandCursor)
+        self.btn_mute_main.setStyleSheet(
+            "border: none; background: transparent; font-size: 15px; padding: 0px;")
         self.btn_mute_main.clicked.connect(self.toggle_mute)
         self.volume_slider_main = QSlider(Qt.Horizontal)
         self.volume_slider_main.setRange(0, 100)
@@ -621,6 +654,31 @@ class ImageWindow(QMainWindow):
         self.tray_icon.setIcon(QIcon(icon_path))
 
         tray_menu = QMenu()
+        tray_menu.setStyleSheet("""
+            QMenu {
+                background-color: #FFFFFF;
+                border: 1px solid #F0D0DD;
+                border-radius: 10px;
+                padding: 6px 4px;
+                font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+                font-size: 13px;
+            }
+            QMenu::item {
+                padding: 7px 28px 7px 16px;
+                border-radius: 6px;
+                margin: 1px 4px;
+                color: #3A3A3A;
+            }
+            QMenu::item:selected {
+                background-color: #FFF0F5;
+                color: #E91E7B;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #F5E6EC;
+                margin: 4px 12px;
+            }
+        """)
         self.action_toggle_visibility = QAction("✨ 显示/隐藏", self)
         self.action_toggle_visibility.triggered.connect(self.toggle_visibility)
 
@@ -630,11 +688,11 @@ class ImageWindow(QMainWindow):
 
         self.btn_mute = QPushButton("🔊")
         self.btn_mute.setFixedSize(28, 28)
-        self.btn_mute.setCursor(Qt.PointingHandCursor)  # 鼠标悬浮变小手
+        self.btn_mute.setCursor(Qt.PointingHandCursor)
         self.btn_mute.setStyleSheet("""
-                    QPushButton { border: none; background: transparent; font-size: 16px; }
-                    QPushButton:hover { color: #FFB6C1; } /* 鼠标移上去稍微变个色 */
-                """)
+            QPushButton { border: none; background: transparent; font-size: 16px; }
+            QPushButton:hover { color: #E91E7B; }
+        """)
         self.btn_mute.clicked.connect(self.toggle_mute)
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)

@@ -4,97 +4,156 @@
 ![PySide6](https://img.shields.io/badge/PySide6-GUI-green.svg)
 ![Live2D](https://img.shields.io/badge/Live2D-Cubism-ff69b4.svg)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+![RAG](https://img.shields.io/badge/RAG-ChromaDB-orange.svg)
+![Agent](https://img.shields.io/badge/Agent-Function_Calling-purple.svg)
 
-这是一个基于 Python 和 PySide6 开发的桌面级 AI 虚拟陪伴宠物。她不仅拥有原生的透明无框 Live2D 躯壳，还接入了本地 LLM 大模型与 TTS 语音合成，希望能给你增添一些乐趣。
+> 不是普通的桌面宠物——她拥有**三层记忆系统**（RAG 语义检索）、**Function Calling 工具链**、**情绪感知**和 Live2D 实时表情反馈。你可以把她当作一个具备长期记忆和主动行动能力的 AI 陪伴角色。
 
 ## ✨ 核心特性
 
-- **🎭 原生 Live2D 渲染**：基于 `live2d-py` 与 OpenGL 的硬件加速渲染，完美支持透明背景、物理碰撞与随机待机动作，极低性能开销。
-- **🗣️ 实时语音与动态口型 (Lip-Sync)**：集成 GPT-SoVITS / Edge-TTS，通过 `soundfile` 实时解析音频 RMS 包络线，驱动 Live2D 模型参数实现完美对口型。
-- **🧠 大语言模型大脑**：支持自定义 System Prompt，塑造独一无二的傲娇/毒舌/温柔人设。
-- **⏰ 强制霸屏提醒系统**：AI 语义提取日程安排，时间一到强制接管屏幕中心，不互动绝不退让的“硬核”监督。
-- **⚙️ 全局 YAML 配置**：通过 `config.yaml` 零代码热切换模型、调整视口坐标、切换语音引擎和更改人设。
+### 🧠 三层记忆系统（RAG）
+- **工作记忆**：最近 20 轮对话，保存在 `pet_memory.json`
+- **语义记忆**：用户事实（生日、偏好等），通过 ChromaDB 向量数据库持久化
+- **情节记忆**：每 5 轮对话自动生成摘要，形成"回忆片段"
+- 基于 ModelScope `gte_sentence_embedding` 模型做中文语义检索，无需联网
+
+### 🔧 Function Calling 工具链
+宠物不仅是"聊天机器人"，她能**主动调用工具**：
+
+| 工具 | 用途 | 示例 |
+|------|------|------|
+| `write_memory` | 记住用户事实 | "帮我记下我喜欢喝红茶" |
+| `set_alarm` | 定时提醒 | "5 分钟后提醒我喝水" |
+| `search_memory` | 检索记忆 | "你还记得我喜欢喝什么吗？" |
+| `set_mood` | 感知情绪变化 | "今天好开心！" → 自动检测 |
+| `get_time` | 获取当前时间 | "现在几点了？" |
+
+### 😊 情绪感知与自适应
+- 8 种情绪标签：happy / excited / sad / worried / angry / tired / bored / neutral
+- **趋势追踪**：最近 3 次情绪变化，判断"持续开心""在好转""在变差"等趋势
+- **自适应提示词**：根据情绪动态注入引导语（低落时温柔安慰，兴奋时热烈回应）
+- **Live2D 表情同步**：情绪变化实时映射到模型表情（眯眼笑、星光大眼、委屈、嘟嘴等）
+
+### 🎭 Live2D 实时渲染
+- 基于 `live2d-py` + OpenGL 硬件加速，透明无框窗口 + 始终置顶
+- Lip-Sync 口型同步：`soundfile` 实时解析 RMS 音频包络，驱动 Live2D 嘴部参数
+
+### 🗣️ 语音交互
+- 支持 Edge-TTS（免部署）和 GPT-SoVITS（高拟真度）双引擎
+- 语音识别：Whisper + VAD 降噪，支持中文语音输入
+- 自动过滤 emoji：TTS 合成前剥离表情符号，避免朗读乱码
+
+### 📊 评估框架
+- 独立的 `eval_framework.py`，无 GUI 依赖，可 CLI 直接运行
+- 四个维度自动评测：Tool Calling / Memory Recall / Mood Perception / Persona Consistency
+- 输出 `eval_report.md` 评分报告
 
 ## 🛠️ 技术栈
 
-- **GUI 框架**: PySide6 (Qt for Python)
-- **图形渲染**: OpenGL, live2d-py
-- **音频处理**: soundfile, numpy, PySide6.QtMultimedia
-- **AI 交互**: requests (对接本地LLM 接口), GPT-SoVITS 
+| 层级 | 技术 |
+|------|------|
+| GUI | PySide6 (Qt), OpenGL |
+| 模型渲染 | live2d-py (Cubism 3) |
+| 大语言模型 | DeepSeek V4 Pro / Qwen2.5 (本地 GGUF) |
+| 向量数据库 | ChromaDB (PersistentClient, cosine 相似度) |
+| Embedding | ModelScope `gte_sentence_embedding_chinese-small` (512d) |
+| TTS | Edge-TTS / GPT-SoVITS |
+| ASR | faster-whisper + speech_recognition |
+| 协议 | OpenAI Function Calling (tool_calls loop) |
 
-## 🚀 快速开始 (本地部署)
+## 🚀 快速开始
 
 ### 1. 环境准备
-推荐使用Python 包管理器 `uv` 来建立独立的虚拟环境：
 
 ```bash
-# 创建并激活虚拟环境
+git clone <repo-url>
+cd AI_friend
+
+# 创建虚拟环境（推荐 uv）
 uv venv
 .venv\Scripts\activate
-```
 
-### 2. 下载项目依赖
-```bash
-uv sync
-#或者
+# 安装依赖
 uv pip install -r requirements.txt
 ```
-使用ollama来本地部署大模型(如果没有ollama请去官网下载)
-```bash
-ollama run qwen2.5:7b
+
+### 2. 配置 LLM
+
+编辑 `config.yaml`：
+
+```yaml
+llm:
+  mode: "api"                              # api 或 local
+  api_url: "https://api.deepseek.com"      # API 地址
+  api_key: "sk-xxxxxxxx"                   # 你的 API Key
+  api_model: "deepseek-v4-pro"             # 模型名称
 ```
-qwen2.5为默认模型，可以使用其他模型（修改config.yaml中的模型即可）
 
-### 3.准备Live2D模型
-将你的 Live2D 运行时模型文件夹（需包含 .model3.json, .moc3 等文件）放置在model目录下。
+或使用本地模型：
 
-打开 config.yaml，修改 live2d.model_path 指向你的模型配置文件。
+```yaml
+llm:
+  mode: "local"
+  local_path: "models/qwen2.5-3b-instruct-q4_k_m.gguf"
+```
 
-### 4.运行
-项目默认使用edge-tts，如果你没有本地部署GPT-SoVITS，可以直接运行下列命令
+### 3. 放置 Live2D 模型
+
+将模型文件夹放入 `model/` 目录，修改 `config.yaml`：
+
+```yaml
+live2d:
+  model_path: "model/mao_pro_zh/runtime/mao_pro.model3.json"
+```
+
+### 4. 运行
+
 ```bash
 python main.py
 ```
-如果你部署了GPT-SoVITS，请将config.yaml中的live2d.tts_engine修改为sovits，并确保sovits的api已开启
 
-注意：如果你修改过config.yaml，请你重启她
+**Release 版**：直接下载 Releases 中的压缩包，解压运行 `AI_friend.exe`。
 
-## 🚀 Release版本（开袋即食）
-### 1.部署（可选）
-在release分支中拉取代码，运行main.py。
+## 🎮 互动指南
 
-### 2.下载
-在Releases中下载压缩包并解压，运行AI_friend.exe。
+| 操作 | 效果                                |
+|------|-----------------------------------|
+| 左键拖拽 | 移动宠物位置                            |
+| 右键菜单 | 对话 / 一键失忆 / 勿扰模式 / 音量 / 切换语音 / 退出 |
+| 点击气泡输入框 | 文字聊天（按 Enter 发送）                  |
+| 点击 🎤 按钮 | 语音输入（Whisper 识别）                  |
+| 双击宠物 | 关闭气泡                              |
+| 托盘图标 | 显示 / 隐藏 / 音量 / 退出                 |
 
-### 3.llm配置
-在config.yaml文件中
+## 🧪 运行评估
+
 ```bash
-llm:
-  mode: "api" #local or api
-  local_path: "models/qwen2.5-3b-instruct-q4_k_m.gguf"  # 本地模型路径
-  api_url: "your_url"  # 云端模型url
-  api_key: "your_key"  # 密钥
-  api_model: "Qwen/Qwen2.5-7B-Instruct"
+python eval_framework.py
 ```
-其中，在local模式下，可以将模型的gguf文件放置在models文件夹下。这里推荐去魔搭社区下载模型文件。
 
-而在api模式下，需要云端模型的url和密钥。这里推荐去硅基流动的官网注册一个免费的api密钥，替换掉api_url和api_key即可。
+会在控制台实时输出评分，并生成 `eval_report.md` 详细报告。
 
-## 🎮 互动指南 
-1.唤醒与拖拽：鼠标左键按住身体可自由拖拽位置,默认生成位置为屏幕右下角（可在config.yaml中更改）
+## 📂 项目结构
 
-2.菜单互动：右击加载好的live2d可以弹出菜单栏
+```
+AI_friend/
+├── main.py              # 入口
+├── pet_window.py        # 主窗口 + 交互逻辑 + 记忆/情绪集成
+├── widgets.py           # Live2DWidget + FloatingBubble
+├── workers.py           # LLMWorker (工具链循环) + TTSWorker + VoiceWorker
+├── memory_manager.py    # 三层记忆系统 (ChromaDB + Embedding)
+├── mood_tracker.py      # 情绪追踪与自适应提示词
+├── tools.py             # Function Calling 工具定义与执行器
+├── eval_framework.py    # 独立评估脚本
+├── config.yaml          # 全局配置
+├── requirements.txt     # Python 依赖
+├── model/               # Live2D 模型
+├── pet_chroma_db/       # 向量数据库 (自动生成)
+└── pet_memory.json      # 工作记忆 (自动生成)
+```
 
-3.语音聊天：点击气泡上的麦克风按钮输入文字（或语音），等待她回复并开口说话。
+## 📄 License
 
-4.日程提醒：直接对她说：“10分钟后提醒我喝水”，她会自动记录并在倒计时结束后“突脸”提醒。
+MIT License.
 
-5.随机互动：她会读取当前窗口的标题，并产生随机互动。
-
-
-## 📄 开源协议
-本项目基于 MIT License 开源。
-
-注：Live2D 引擎及相关模型版权归属于 Live2D 
-
-Inc. 及原画师/模型师，请遵循官方最终用户许可协议。
+注：Live2D 引擎及相关模型版权归属于 Live2D Inc. 及原画师/模型师，请遵循官方最终用户许可协议。

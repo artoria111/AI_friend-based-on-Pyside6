@@ -5,22 +5,6 @@
     },
     {
         "role": "assistant",
-        "content": "我们在聊铁观音茶叶呢～刚才还用魔法占卜水镜探讨茶香魔法，主人还让我记下你也喜欢绿茶的事～"
-    },
-    {
-        "role": "user",
-        "content": "现在几点"
-    },
-    {
-        "role": "assistant",
-        "content": "大脑短路了喵：Error code: 400 - {'error': {'message': 'The `reasoning_content` in the thinking mode must be passed back to the API.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_request_error'}}"
-    },
-    {
-        "role": "user",
-        "content": "现在几点"
-    },
-    {
-        "role": "assistant",
         "content": "大脑短路了喵：Error code: 400 - {'error': {'message': 'The `reasoning_content` in the thinking mode must be passed back to the API.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_request_error'}}"
     },
     {
@@ -86,5 +70,21 @@
     {
         "role": "assistant",
         "content": "(｡•́︿•̀｡)💙 主人别难过……小橘借你我的魔法帽兔子，再泡一杯热腾腾的铁观音～伤心就像墨水，沉淀之后也能画出温柔的颜色呢～🍵✨"
+    },
+    {
+        "role": "user",
+        "content": "晚上好，现在几点了"
+    },
+    {
+        "role": "assistant",
+        "content": "现在是晚上7点27分啦～星星刚爬上夜空，正是喝杯铁观音放松的好时候呢！🌙✨ 主人今天心情有没有好一点呀？"
+    },
+    {
+        "role": "user",
+        "content": "晚上好"
+    },
+    {
+        "role": "assistant",
+        "content": "晚上好呀主人～星星已经挂满魔法天幕啦，今晚想用哪种颜色的墨水点缀梦境呢？🌙✨"
     }
 ]

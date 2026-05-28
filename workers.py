@@ -26,6 +26,14 @@ class TTSWorker(QThread):
             return
         safe_text = str(self.text)
         clean_text = re.sub(r'\*.*?\*', '', safe_text).strip()
+        # Strip emoji before TTS (Edge-TTS would try to read them aloud)
+        _EMOJI_RE = re.compile(
+            '[\U0001F300-\U0001F9FF'    # Emoticons, symbols, pictographs (★✨🎉😀 etc.)
+            '☀-➿'             # Misc symbols + Dingbats (☀♡➿ etc.)
+            '︀-️'             # Variation selectors
+            '‍'                    # Zero-width joiner
+            ']+')
+        clean_text = _EMOJI_RE.sub('', clean_text).strip()
         if not clean_text:
             return
 
