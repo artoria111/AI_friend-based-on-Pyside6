@@ -26,8 +26,8 @@ llm:
   mode: "api"
   local_path: "models/qwen2.5-3b-instruct-q4_k_m.gguf"
   api_url: "https://api.deepseek.com"
-  api_key: "sk-xxxx"
-  api_model: "deepseek-v4-pro"
+  api_key: "sk-xxxxxxxxx"
+  api_model: "deepseek-chat"
 
 memory:
   enabled: true
