@@ -1,0 +1,11 @@
+config.yaml
+AI_friend.spec
+eval_report.md
+.venv
+__pycache__
+build
+dist
+pet_chroma_db
+PROJECT_BOOK_li.txt
+pet_diary.json
+pet_memory.json
