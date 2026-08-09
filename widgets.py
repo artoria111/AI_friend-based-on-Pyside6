@@ -1,23 +1,31 @@
-from PySide6.QtWidgets import QHBoxLayout, QPushButton,QWidget, QLabel, QLineEdit, QVBoxLayout, QSizePolicy
-from PySide6.QtCore import Signal, Qt,QTimer
 import live2d.v3 as live2d
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from workers import VoiceWorker
 
 # ── Unified theme palette ──────────────────────────────────────────
 THEME = {
-    "pink":       "#F8A5C2",   # primary pink
-    "pink_soft":  "#FCE4EC",   # soft pink bg
-    "pink_dark":  "#E91E7B",   # accent
-    "white":      "#FFFFFF",
-    "bg_light":   "#FDFDFD",   # card bg
-    "text_dark":  "#2D2D2D",   # main text
-    "text_grey":  "#8E8E93",   # secondary text
-    "border":     "#F0D0DD",   # bubble border
-    "shadow":     "rgba(248, 165, 194, 0.15)",  # glow illusion
-    "font":       '"Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif',
-    "radius":     "18px",
+    "pink": "#F8A5C2",  # primary pink
+    "pink_soft": "#FCE4EC",  # soft pink bg
+    "pink_dark": "#E91E7B",  # accent
+    "white": "#FFFFFF",
+    "bg_light": "#FDFDFD",  # card bg
+    "text_dark": "#2D2D2D",  # main text
+    "text_grey": "#8E8E93",  # secondary text
+    "border": "#F0D0DD",  # bubble border
+    "shadow": "rgba(248, 165, 194, 0.15)",  # glow illusion
+    "font": '"Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif',
+    "radius": "18px",
 }
 
 BUBBLE_QSS = f"""
@@ -42,8 +50,9 @@ BUBBLE_QSS = f"""
     }}
 """
 
+
 class Live2DWidget(QOpenGLWidget):
-    def __init__(self, model_json_path, config,parent=None):
+    def __init__(self, model_json_path, config, parent=None):
         super().__init__(parent)
         self.config = config
         self.model_json_path = model_json_path
@@ -81,10 +90,11 @@ class Live2DWidget(QOpenGLWidget):
 
         try:
             self.model.SetScale(self.config["live2d"]["scale"])
-            self.model.SetOffset(self.config["live2d"]["offset_x"], self.config["live2d"]["offset_y"])
+            self.model.SetOffset(
+                self.config["live2d"]["offset_x"], self.config["live2d"]["offset_y"]
+            )
         except Exception as e:
             print(f"视角微调失败: {e}")
-
 
     def paintGL(self):
         live2d.clearBuffer()
@@ -109,6 +119,7 @@ class Live2DWidget(QOpenGLWidget):
 
 class FloatingBubble(QWidget):
     text_submitted = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.is_recording = False
@@ -130,8 +141,11 @@ class FloatingBubble(QWidget):
         self.user_label.setWordWrap(True)
         self.user_label.setStyleSheet(
             f"color: {THEME['text_grey']}; font-size: 12px; border: none; background: transparent;"
-            f"font-family: {THEME['font']};")
-        self.user_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+            f"font-family: {THEME['font']};"
+        )
+        self.user_label.setSizePolicy(
+            QSizePolicy.Preferred, QSizePolicy.MinimumExpanding
+        )
 
         self.btn_close = QPushButton("✕")
         self.btn_close.setFixedSize(22, 22)
@@ -139,13 +153,13 @@ class FloatingBubble(QWidget):
         self.btn_close.setStyleSheet(f"""
             QPushButton {{
                 border: none;
-                color: {THEME['text_grey']};
+                color: {THEME["text_grey"]};
                 font-size: 15px;
                 background: transparent;
                 border-radius: 11px;
             }}
             QPushButton:hover {{
-                color: {THEME['white']};
+                color: {THEME["white"]};
                 background-color: #E57373;
             }}
         """)
@@ -156,7 +170,8 @@ class FloatingBubble(QWidget):
         self.ai_label.setWordWrap(True)
         self.ai_label.setStyleSheet(
             f"color: {THEME['text_dark']}; font-size: 14px; font-weight: 600;"
-            f"border: none; background: transparent; font-family: {THEME['font']};")
+            f"border: none; background: transparent; font-family: {THEME['font']};"
+        )
         self.ai_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
         input_layout = QHBoxLayout()
         input_layout.setContentsMargins(0, 0, 0, 0)
@@ -171,14 +186,14 @@ class FloatingBubble(QWidget):
         self.btn_voice.setCursor(Qt.PointingHandCursor)
         VOICE_BTN_QSS = f"""
             QPushButton {{
-                border: 1.5px solid {THEME['border']};
+                border: 1.5px solid {THEME["border"]};
                 border-radius: 19px;
-                background-color: {THEME['white']};
+                background-color: {THEME["white"]};
                 font-size: 16px;
             }}
             QPushButton:hover {{
-                background-color: {THEME['pink']};
-                border-color: {THEME['pink']};
+                background-color: {THEME["pink"]};
+                border-color: {THEME["pink"]};
                 color: white;
             }}
         """
@@ -208,7 +223,8 @@ class FloatingBubble(QWidget):
         self.btn_voice.setEnabled(False)  # 防止狂点录音
         self.btn_voice.setStyleSheet(
             f"background-color: {THEME['pink']}; border-radius: 19px; color: white;"
-            f"border: 1.5px solid {THEME['pink']};")
+            f"border: 1.5px solid {THEME['pink']};"
+        )
 
         self.voice_worker = VoiceWorker(main_window.whisper)
 
@@ -233,7 +249,8 @@ class FloatingBubble(QWidget):
             f"QPushButton {{ border: 1.5px solid {THEME['border']}; border-radius: 19px;"
             f"background-color: {THEME['white']}; font-size: 16px; }}"
             f"QPushButton:hover {{ background-color: {THEME['pink']};"
-            f"border-color: {THEME['pink']}; color: white; }}")
+            f"border-color: {THEME['pink']}; color: white; }}"
+        )
 
     def on_submit(self):
         text = self.input.text().strip()
@@ -274,4 +291,3 @@ class FloatingBubble(QWidget):
         self.ai_label.adjustSize()
         self.container.adjustSize()
         self.adjustSize()
-

@@ -2,8 +2,6 @@
 
 import json
 from datetime import datetime
-from typing import Optional
-
 
 TOOLS = [
     {
@@ -16,12 +14,12 @@ TOOLS = [
                 "properties": {
                     "fact": {
                         "type": "string",
-                        "description": "要记住的简洁事实，例如「用户喜欢喝红茶」「用户下周五要交论文」"
+                        "description": "要记住的简洁事实，例如「用户喜欢喝红茶」「用户下周五要交论文」",
                     }
                 },
-                "required": ["fact"]
-            }
-        }
+                "required": ["fact"],
+            },
+        },
     },
     {
         "type": "function",
@@ -33,16 +31,16 @@ TOOLS = [
                 "properties": {
                     "seconds": {
                         "type": "integer",
-                        "description": "倒计时秒数。1分钟=60，1小时=3600"
+                        "description": "倒计时秒数。1分钟=60，1小时=3600",
                     },
                     "message": {
                         "type": "string",
-                        "description": "提醒内容，例如「喝水」「开会」"
-                    }
+                        "description": "提醒内容，例如「喝水」「开会」",
+                    },
                 },
-                "required": ["seconds", "message"]
-            }
-        }
+                "required": ["seconds", "message"],
+            },
+        },
     },
     {
         "type": "function",
@@ -54,12 +52,12 @@ TOOLS = [
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "搜索关键词，例如「饮品偏好」「生日」「正在学什么」"
+                        "description": "搜索关键词，例如「饮品偏好」「生日」「正在学什么」",
                     }
                 },
-                "required": ["query"]
-            }
-        }
+                "required": ["query"],
+            },
+        },
     },
     {
         "type": "function",
@@ -71,34 +69,41 @@ TOOLS = [
                 "properties": {
                     "mood": {
                         "type": "string",
-                        "enum": ["happy", "excited", "sad", "worried", "angry", "tired", "bored", "neutral"],
-                        "description": "主人的当前情绪"
+                        "enum": [
+                            "happy",
+                            "excited",
+                            "sad",
+                            "worried",
+                            "angry",
+                            "tired",
+                            "bored",
+                            "neutral",
+                        ],
+                        "description": "主人的当前情绪",
                     },
                     "reason": {
                         "type": "string",
-                        "description": "判断依据，例如「主人说今天涨工资了」「主人看起来很累」"
-                    }
+                        "description": "判断依据，例如「主人说今天涨工资了」「主人看起来很累」",
+                    },
                 },
-                "required": ["mood"]
-            }
-        }
+                "required": ["mood"],
+            },
+        },
     },
     {
         "type": "function",
         "function": {
             "name": "get_time",
             "description": "获取当前日期和时间。当用户询问时间、日期，或需要基于当前时间回答问题时调用。",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
-        }
-    }
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
 ]
 
 
-def execute(name: str, args: dict, memory_manager=None, alarm_callback=None, mood_tracker=None) -> str:
+def execute(
+    name: str, args: dict, memory_manager=None, alarm_callback=None, mood_tracker=None
+) -> str:
     """Execute a tool call and return the result as a JSON string."""
 
     if name == "write_memory":
@@ -113,13 +118,14 @@ def execute(name: str, args: dict, memory_manager=None, alarm_callback=None, moo
         seconds = args.get("seconds", 0)
         message = args.get("message", "").strip()
         if seconds <= 0:
-            return json.dumps({"ok": False, "error": "时间必须大于0"}, ensure_ascii=False)
+            return json.dumps(
+                {"ok": False, "error": "时间必须大于0"}, ensure_ascii=False
+            )
         if alarm_callback:
             alarm_callback(seconds, message)
         print(f"[Tool] set_alarm: {seconds}s -> {message}")
         return json.dumps(
-            {"ok": True, "seconds": seconds, "message": message},
-            ensure_ascii=False
+            {"ok": True, "seconds": seconds, "message": message}, ensure_ascii=False
         )
 
     elif name == "search_memory":
@@ -132,15 +138,26 @@ def execute(name: str, args: dict, memory_manager=None, alarm_callback=None, moo
         print(f"[Tool] search_memory('{query}') -> facts:{facts}, episodes:{episodes}")
         return json.dumps(
             {"found": bool(facts or episodes), "facts": facts, "episodes": episodes},
-            ensure_ascii=False
+            ensure_ascii=False,
         )
 
     elif name == "set_mood":
         mood = args.get("mood", "").strip().lower()
         reason = args.get("reason", "").strip()
-        valid_moods = {"happy", "excited", "sad", "worried", "angry", "tired", "bored", "neutral"}
+        valid_moods = {
+            "happy",
+            "excited",
+            "sad",
+            "worried",
+            "angry",
+            "tired",
+            "bored",
+            "neutral",
+        }
         if mood not in valid_moods:
-            return json.dumps({"ok": False, "error": f"无效情绪: {mood}"}, ensure_ascii=False)
+            return json.dumps(
+                {"ok": False, "error": f"无效情绪: {mood}"}, ensure_ascii=False
+            )
         if mood_tracker:
             mood_tracker.record(mood, reason)
         print(f"[Tool] set_mood: {mood}" + (f" (原因: {reason})" if reason else ""))
@@ -151,7 +168,7 @@ def execute(name: str, args: dict, memory_manager=None, alarm_callback=None, moo
         result = {
             "datetime": now.strftime("%Y年%m月%d日 %H:%M"),
             "weekday": now.strftime("%A"),
-            "timestamp": now.isoformat()
+            "timestamp": now.isoformat(),
         }
         print(f"[Tool] get_time -> {result['datetime']}")
         return json.dumps(result, ensure_ascii=False)

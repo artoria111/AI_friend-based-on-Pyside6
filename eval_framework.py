@@ -13,10 +13,8 @@ Output: eval_report.md
 import json
 import os
 import sys
-import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 # Ensure local imports work
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -24,20 +22,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import yaml
 from openai import OpenAI
 
-from tools import TOOLS, execute
 from mood_tracker import MoodTracker
+from tools import TOOLS, execute
 
 # ---------------------------------------------------------------------------
 # ANSI colour helpers
 # ---------------------------------------------------------------------------
 COLORS = {
-    "green":  "\033[92m",
-    "red":    "\033[91m",
+    "green": "\033[92m",
+    "red": "\033[91m",
     "yellow": "\033[93m",
-    "cyan":   "\033[96m",
-    "bold":   "\033[1m",
-    "dim":    "\033[2m",
-    "reset":  "\033[0m",
+    "cyan": "\033[96m",
+    "bold": "\033[1m",
+    "dim": "\033[2m",
+    "reset": "\033[0m",
 }
 
 
@@ -82,6 +80,7 @@ class EvalFramework:
         if mem_cfg.get("enabled", True):
             try:
                 from memory_manager import MemoryManager
+
                 print(c("[Eval] Loading MemoryManager...", "dim"))
                 self.memory_manager = MemoryManager(
                     llm_client=self.llm_client,
@@ -95,6 +94,7 @@ class EvalFramework:
 
         # --- MoodTracker ---
         from mood_tracker import MoodTracker
+
         self.mood_tracker = MoodTracker()
 
         self.results: list[TestResult] = []
@@ -129,21 +129,26 @@ class EvalFramework:
             msg = response.choices[0].message
 
             if msg.tool_calls:
-                assistant_msg: dict = {"role": "assistant", "content": msg.content or ""}
+                assistant_msg: dict = {
+                    "role": "assistant",
+                    "content": msg.content or "",
+                }
                 rc = getattr(msg, "reasoning_content", None)
                 if rc:
                     assistant_msg["reasoning_content"] = rc
 
                 tc_list = []
                 for tc in msg.tool_calls:
-                    tc_list.append({
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    })
+                    tc_list.append(
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                    )
                     try:
                         args = json.loads(tc.function.arguments)
                     except json.JSONDecodeError:
@@ -164,11 +169,13 @@ class EvalFramework:
                         alarm_callback=None,
                         mood_tracker=self.mood_tracker,
                     )
-                    msgs.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": result,
-                    })
+                    msgs.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": result,
+                        }
+                    )
                 continue  # next round
 
             else:
@@ -218,16 +225,20 @@ class EvalFramework:
             called = [tc["name"] for tc in tool_calls]
             passed = case["expected_tool"] in called
 
-            results.append(TestResult(
-                dimension="Tool Calling",
-                name=case["name"],
-                input_text=case["input"],
-                expected=f"LLM calls {case['expected_tool']}",
-                actual=f"called {called} → {reply[:60]}" if called else f"no tool calls → {reply[:80]}",
-                passed=passed,
-                score=1.0 if passed else 0.0,
-                details={"tool_calls": called, "reply": reply},
-            ))
+            results.append(
+                TestResult(
+                    dimension="Tool Calling",
+                    name=case["name"],
+                    input_text=case["input"],
+                    expected=f"LLM calls {case['expected_tool']}",
+                    actual=f"called {called} → {reply[:60]}"
+                    if called
+                    else f"no tool calls → {reply[:80]}",
+                    passed=passed,
+                    score=1.0 if passed else 0.0,
+                    details={"tool_calls": called, "reply": reply},
+                )
+            )
 
         # Clean up any facts stored during these tests
         if self.memory_manager:
@@ -244,15 +255,17 @@ class EvalFramework:
     # ------------------------------------------------------------------
     def memory_recall_tests(self) -> list[TestResult]:
         if self.memory_manager is None:
-            return [TestResult(
-                dimension="Memory Recall",
-                name="SKIP",
-                input_text="",
-                expected="",
-                actual="MemoryManager not available",
-                passed=False,
-                score=0.0,
-            )]
+            return [
+                TestResult(
+                    dimension="Memory Recall",
+                    name="SKIP",
+                    input_text="",
+                    expected="",
+                    actual="MemoryManager not available",
+                    passed=False,
+                    score=0.0,
+                )
+            ]
 
         cases = [
             {
@@ -289,16 +302,18 @@ class EvalFramework:
             reply, tool_calls = self._call_llm_tool_round(messages)
             passed = case["expected_keyword"] in reply
 
-            results.append(TestResult(
-                dimension="Memory Recall",
-                name=case["name"],
-                input_text=case["input"],
-                expected=f"reply contains '{case['expected_keyword']}'",
-                actual=reply[:100],
-                passed=passed,
-                score=1.0 if passed else 0.0,
-                details={"tool_calls": [tc["name"] for tc in tool_calls]},
-            ))
+            results.append(
+                TestResult(
+                    dimension="Memory Recall",
+                    name=case["name"],
+                    input_text=case["input"],
+                    expected=f"reply contains '{case['expected_keyword']}'",
+                    actual=reply[:100],
+                    passed=passed,
+                    score=1.0 if passed else 0.0,
+                    details={"tool_calls": [tc["name"] for tc in tool_calls]},
+                )
+            )
 
         self.memory_manager.clear_all()
         return results
@@ -354,16 +369,18 @@ class EvalFramework:
                 passed = False
                 actual = f"no set_mood call → {reply[:60]}"
 
-            results.append(TestResult(
-                dimension="Mood Perception",
-                name=case["name"],
-                input_text=case["input"],
-                expected=f"set_mood in {case['expected_moods']}",
-                actual=actual,
-                passed=passed,
-                score=1.0 if passed else 0.0,
-                details={"detected": detected, "reply": reply},
-            ))
+            results.append(
+                TestResult(
+                    dimension="Mood Perception",
+                    name=case["name"],
+                    input_text=case["input"],
+                    expected=f"set_mood in {case['expected_moods']}",
+                    actual=actual,
+                    passed=passed,
+                    score=1.0 if passed else 0.0,
+                    details={"detected": detected, "reply": reply},
+                )
+            )
 
         return results
 
@@ -402,15 +419,17 @@ class EvalFramework:
 
         results = []
         for chk in checks:
-            results.append(TestResult(
-                dimension="Persona Consistency",
-                name=chk["name"],
-                input_text=greeting,
-                expected=chk["desc"],
-                actual=chk["actual"],
-                passed=chk["passed"],
-                score=1.0 if chk["passed"] else 0.0,
-            ))
+            results.append(
+                TestResult(
+                    dimension="Persona Consistency",
+                    name=chk["name"],
+                    input_text=greeting,
+                    expected=chk["desc"],
+                    actual=chk["actual"],
+                    passed=chk["passed"],
+                    score=1.0 if chk["passed"] else 0.0,
+                )
+            )
 
         return results
 
@@ -445,8 +464,12 @@ class EvalFramework:
         self.results = []
         self.results += self._run_group("1. Tool Calling", self.tool_calling_tests)
         self.results += self._run_group("2. Memory Recall", self.memory_recall_tests)
-        self.results += self._run_group("3. Mood Perception", self.mood_perception_tests)
-        self.results += self._run_group("4. Persona Consistency", self.persona_consistency_tests)
+        self.results += self._run_group(
+            "3. Mood Perception", self.mood_perception_tests
+        )
+        self.results += self._run_group(
+            "4. Persona Consistency", self.persona_consistency_tests
+        )
 
         self._print_summary()
         self._write_report()
@@ -470,8 +493,15 @@ class EvalFramework:
             total_tests += len(items)
 
         overall = total_passed / total_tests if total_tests else 0
-        overall_colour = "green" if overall >= 0.7 else ("yellow" if overall >= 0.4 else "red")
-        print(c(f"    {'TOTAL':22s} {total_passed}/{total_tests}  {c(f'{overall*100:.0f}%', overall_colour)}", "bold"))
+        overall_colour = (
+            "green" if overall >= 0.7 else ("yellow" if overall >= 0.4 else "red")
+        )
+        print(
+            c(
+                f"    {'TOTAL':22s} {total_passed}/{total_tests}  {c(f'{overall * 100:.0f}%', overall_colour)}",
+                "bold",
+            )
+        )
         print()
 
     def _write_report(self):
@@ -484,7 +514,7 @@ class EvalFramework:
             "# AI Desktop Pet Evaluation Report",
             f"**Date:** {now}",
             f"**Model:** {self.llm_model}",
-            f"**Config:** config.yaml",
+            "**Config:** config.yaml",
             "",
             "## Summary",
             "",
@@ -504,8 +534,12 @@ class EvalFramework:
             total_passed += passed
             total_tests += len(items)
 
-        overall_pct = f"{total_passed / total_tests * 100:.0f}%" if total_tests else "N/A"
-        lines.append(f"| **Total** | **{total_passed}/{total_tests} ({overall_pct})** | |")
+        overall_pct = (
+            f"{total_passed / total_tests * 100:.0f}%" if total_tests else "N/A"
+        )
+        lines.append(
+            f"| **Total** | **{total_passed}/{total_tests} ({overall_pct})** | |"
+        )
         lines.append("")
 
         for dim, items in dims.items():
@@ -520,7 +554,9 @@ class EvalFramework:
                 if r.details:
                     safe_details = {k: v for k, v in r.details.items() if v}
                     if safe_details:
-                        lines.append(f"- **Details:** {json.dumps(safe_details, ensure_ascii=False)}")
+                        lines.append(
+                            f"- **Details:** {json.dumps(safe_details, ensure_ascii=False)}"
+                        )
                 lines.append("")
 
         lines.append("---")
@@ -530,7 +566,7 @@ class EvalFramework:
         report = "\n".join(lines)
         with open("eval_report.md", "w", encoding="utf-8") as f:
             f.write(report)
-        print(c(f"  Report saved to eval_report.md", "cyan"))
+        print(c("  Report saved to eval_report.md", "cyan"))
 
 
 # ===================================================================

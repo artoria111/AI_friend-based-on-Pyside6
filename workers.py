@@ -6,8 +6,8 @@ import time
 
 import edge_tts
 import requests
-from PySide6.QtCore import QThread, Signal
 import speech_recognition as sr
+from PySide6.QtCore import QThread, Signal
 
 
 class TTSWorker(QThread):
@@ -25,15 +25,16 @@ class TTSWorker(QThread):
             print("🈳 没收到要说的话，发声车间罢工了~")
             return
         safe_text = str(self.text)
-        clean_text = re.sub(r'\*.*?\*', '', safe_text).strip()
+        clean_text = re.sub(r"\*.*?\*", "", safe_text).strip()
         # Strip emoji before TTS (Edge-TTS would try to read them aloud)
         _EMOJI_RE = re.compile(
-            '[\U0001F300-\U0001F9FF'    # Emoticons, symbols, pictographs (★✨🎉😀 etc.)
-            '☀-➿'             # Misc symbols + Dingbats (☀♡➿ etc.)
-            '︀-️'             # Variation selectors
-            '‍'                    # Zero-width joiner
-            ']+')
-        clean_text = _EMOJI_RE.sub('', clean_text).strip()
+            "[\U0001f300-\U0001f9ff"  # Emoticons, symbols, pictographs (★✨🎉😀 etc.)
+            "☀-➿"  # Misc symbols + Dingbats (☀♡➿ etc.)
+            "︀-️"  # Variation selectors
+            "‍"  # Zero-width joiner
+            "]+"
+        )
+        clean_text = _EMOJI_RE.sub("", clean_text).strip()
         if not clean_text:
             return
 
@@ -45,9 +46,11 @@ class TTSWorker(QThread):
     def _run_edge_tts(self, text):
         output_file = f"{self.base_filename}.mp3"
         try:
+
             async def _generate():
                 tts = edge_tts.Communicate(text, "zh-CN-XiaoyiNeural")
                 await tts.save(output_file)
+
             asyncio.run(_generate())
             self.finished.emit(output_file)
         except Exception as e:
@@ -59,7 +62,7 @@ class TTSWorker(QThread):
             url = self.config["live2d"]["url"]
             payload = {
                 "text": text,
-                "text_language": self.config["live2d"]["text_language"]
+                "text_language": self.config["live2d"]["text_language"],
             }
             response = requests.post(url, json=payload)
             response.raise_for_status()
@@ -97,7 +100,7 @@ class VoiceWorker(QThread):
                     language="zh",
                     initial_prompt="以下是一段普通话日常对话。",
                     vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=500)
+                    vad_parameters=dict(min_silence_duration_ms=500),
                 )
                 text = "".join([segment.text for segment in segments]).strip()
 
@@ -109,8 +112,8 @@ class VoiceWorker(QThread):
             except sr.WaitTimeoutError:
                 self.error.emit("怎么不说话？拿我寻开心吗！")
             except Exception as e:
-                print(f"Error: {repr(e)}")
-                self.error.emit(f"耳朵坏掉了喵：{str(e)}")
+                print(f"Error: {e!r}")
+                self.error.emit(f"耳朵坏掉了喵：{e!s}")
             finally:
                 if os.path.exists(temp_file):
                     try:
@@ -137,16 +140,18 @@ class LLMWorker(QThread):
             system_prompt = self.config["prompt"]["content"]
             self.messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": str(input_data)}
+                {"role": "user", "content": str(input_data)},
             ]
 
     def _execute_tool(self, name: str, args: dict) -> str:
         from tools import execute
+
         return execute(
-            name, args,
+            name,
+            args,
             memory_manager=self.memory_manager,
             alarm_callback=lambda s, m: self.alarm_requested.emit(s, m),
-            mood_tracker=self.mood_tracker
+            mood_tracker=self.mood_tracker,
         )
 
     def run(self):
@@ -161,26 +166,31 @@ class LLMWorker(QThread):
                         model=self.config["llm"]["api_model"],
                         messages=messages,
                         tools=TOOLS,
-                        temperature=0.7
+                        temperature=0.7,
                     )
                     msg = response.choices[0].message
 
                     if msg.tool_calls:
                         # Record assistant message with tool_calls
-                        assistant_msg = {"role": "assistant", "content": msg.content or ""}
+                        assistant_msg = {
+                            "role": "assistant",
+                            "content": msg.content or "",
+                        }
                         rc = getattr(msg, "reasoning_content", None)
                         if rc:
                             assistant_msg["reasoning_content"] = rc
                         tc_list = []
                         for tc in msg.tool_calls:
-                            tc_list.append({
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.function.name,
-                                    "arguments": tc.function.arguments
+                            tc_list.append(
+                                {
+                                    "id": tc.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc.function.name,
+                                        "arguments": tc.function.arguments,
+                                    },
                                 }
-                            })
+                            )
                         assistant_msg["tool_calls"] = tc_list
                         messages.append(assistant_msg)
 
@@ -188,11 +198,13 @@ class LLMWorker(QThread):
                         for tc in msg.tool_calls:
                             args = json.loads(tc.function.arguments)
                             result = self._execute_tool(tc.function.name, args)
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": tc.id,
-                                "content": result
-                            })
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc.id,
+                                    "content": result,
+                                }
+                            )
 
                         continue  # send back to LLM for final response
 
@@ -206,14 +218,16 @@ class LLMWorker(QThread):
                     response = self.llm.create_chat_completion(
                         messages=messages,
                         max_tokens=self.config.get("live2d", {}).get("max_tokens", 100),
-                        temperature=self.config.get("live2d", {}).get("temperature", 0.7)
+                        temperature=self.config.get("live2d", {}).get(
+                            "temperature", 0.7
+                        ),
                     )
                     reply = response["choices"][0]["message"]["content"]
                     self.response_ready.emit(reply)
                     return
 
         except Exception as e:
-            self.response_ready.emit(f"大脑短路了喵：{str(e)}")
+            self.response_ready.emit(f"大脑短路了喵：{e!s}")
 
 
 class BrainLoaderThread(QThread):
@@ -228,9 +242,9 @@ class BrainLoaderThread(QThread):
     def run(self):
         try:
             from llama_cpp import Llama
+
             def my_progress_callback(progress_val: float):
                 self.progress_updated.emit(progress_val)
-                return None
 
             print("🧠 后台线程：开始搬运大脑到显卡...")
             llm = Llama(
@@ -239,12 +253,12 @@ class BrainLoaderThread(QThread):
                 n_ctx=2048,
                 use_mmap=False,
                 verbose=False,
-                progress_callback=my_progress_callback
+                progress_callback=my_progress_callback,
             )
             print("🧠 后台线程：大脑搬运完毕！")
             self.brain_ready.emit(llm)
         except Exception as e:
-            self.error_occurred.emit(f"脑电波连接失败：{str(e)}")
+            self.error_occurred.emit(f"脑电波连接失败：{e!s}")
 
 
 class WhisperLoaderThread(QThread):
@@ -263,22 +277,27 @@ class WhisperLoaderThread(QThread):
 
             print("👂 后台线程：开始加载听觉神经 (Whisper)...")
             whisper_model = WhisperModel(
-                self.model_size,
-                device=self.device,
-                compute_type=self.compute_type
+                self.model_size, device=self.device, compute_type=self.compute_type
             )
             print("👂 后台线程：听觉神经加载完毕！")
             self.whisper_ready.emit(whisper_model)
         except Exception as e:
-            self.error_occurred.emit(f"听觉神经加载失败：{str(e)}")
+            self.error_occurred.emit(f"听觉神经加载失败：{e!s}")
 
 
 class MemoryLoaderThread(QThread):
     memory_ready = Signal(object)
     error_occurred = Signal(str)
 
-    def __init__(self, llm_client=None, llm_config=None, retrieval_k=3, llm_mode="api",
-                 embed_mode="local", summary_interval=5):
+    def __init__(
+        self,
+        llm_client=None,
+        llm_config=None,
+        retrieval_k=3,
+        llm_mode="api",
+        embed_mode="local",
+        summary_interval=5,
+    ):
         super().__init__()
         self.llm_client = llm_client
         self.llm_config = llm_config
@@ -290,16 +309,19 @@ class MemoryLoaderThread(QThread):
     def run(self):
         try:
             from memory_manager import MemoryManager
-            print(f"🧠 后台线程：开始加载三层记忆系统 (ChromaDB, embed={self.embed_mode})...")
+
+            print(
+                f"🧠 后台线程：开始加载三层记忆系统 (ChromaDB, embed={self.embed_mode})..."
+            )
             mem = MemoryManager(
                 llm_client=self.llm_client,
                 llm_config=self.llm_config,
                 retrieval_k=self.retrieval_k,
                 llm_mode=self.llm_mode,
                 embed_mode=self.embed_mode,
-                summary_interval=self.summary_interval
+                summary_interval=self.summary_interval,
             )
             print("🧠 后台线程：三层记忆系统加载完毕！")
             self.memory_ready.emit(mem)
         except Exception as e:
-            self.error_occurred.emit(f"记忆系统加载失败：{str(e)}")
+            self.error_occurred.emit(f"记忆系统加载失败：{e!s}")

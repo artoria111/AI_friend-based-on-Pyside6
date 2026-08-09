@@ -1,31 +1,45 @@
 import ctypes
 import json
-import random
-
-import soundfile as sf
-import numpy as np
-
-from PySide6.QtCore import QTimer, Qt, QUrl, QEasingCurve, QPropertyAnimation
-from PySide6.QtGui import QAction, QContextMenuEvent, QMouseEvent, QPixmap, QIcon
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtWidgets import QMainWindow, QMenu, QApplication, QSystemTrayIcon, QPushButton, QHBoxLayout, QWidget, \
-    QSlider, QWidgetAction, QProgressBar
-
-
-from workers import LLMWorker, TTSWorker, BrainLoaderThread, WhisperLoaderThread, MemoryLoaderThread
-from widgets import Live2DWidget, FloatingBubble
-from mood_tracker import MoodTracker
-
-import sys
 import os
+import random
+import sys
+
+import numpy as np
+import soundfile as sf
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QContextMenuEvent, QIcon, QMouseEvent
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QMainWindow,
+    QMenu,
+    QProgressBar,
+    QPushButton,
+    QSlider,
+    QSystemTrayIcon,
+    QWidget,
+    QWidgetAction,
+)
+
+from mood_tracker import MoodTracker
+from widgets import FloatingBubble, Live2DWidget
+from workers import (
+    BrainLoaderThread,
+    LLMWorker,
+    MemoryLoaderThread,
+    TTSWorker,
+    WhisperLoaderThread,
+)
 
 
 def get_base_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         # sys.executable 指的是当前运行的 exe 文件的绝对路径
         return os.path.dirname(sys.executable)
 
     return os.path.dirname(os.path.abspath(__file__))
+
 
 class ImageWindow(QMainWindow):
     def __init__(self, config, scale_factor=0.3):
@@ -59,7 +73,9 @@ class ImageWindow(QMainWindow):
         # 必须先把主窗口的属性、大小、位置定下来，后面的气泡才有锚点！
         self.setWindowTitle("MyDesktopPet")
         if self.config["live2d"]["on_top_table"]:
-            self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+            self.setWindowFlags(
+                Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+            )
         else:
             self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -67,8 +83,8 @@ class ImageWindow(QMainWindow):
         # 核心：立刻实例化 Live2D 并撑开窗口！
         self.view = Live2DWidget(model_path, self.config, self)
         self.setCentralWidget(self.view)
-        w = config['window']['width']
-        h = config['window']['height']
+        w = config["window"]["width"]
+        h = config["window"]["height"]
         self.resize(w, h)
         self.set_initial_position()
 
@@ -141,22 +157,25 @@ class ImageWindow(QMainWindow):
         # ==========================================
         self.llm = None
         self.whisper = None
-        self.ear_loader = WhisperLoaderThread(model_size="medium", device="cuda", compute_type="float16")
+        self.ear_loader = WhisperLoaderThread(
+            model_size="medium", device="cuda", compute_type="float16"
+        )
         self.ear_loader.whisper_ready.connect(self.on_whisper_loaded)
         self.ear_loader.error_occurred.connect(self.on_whisper_error)
         self.ear_loader.start()
         self.llm_mode = self.config.get("llm", {}).get("mode", "local")
         if self.llm_mode == "api":
             from openai import OpenAI
+
             self.llm = OpenAI(
                 base_url=self.config["llm"]["api_url"],
-                api_key=self.config["llm"]["api_key"]
+                api_key=self.config["llm"]["api_key"],
             )
-            if hasattr(self, 'progress_bar'):
+            if hasattr(self, "progress_bar"):
                 self.progress_bar.hide()
             print("✨ 云端api已接通")
             self._start_memory_loader()
-            if hasattr(self, 'auto_close_timer'):
+            if hasattr(self, "auto_close_timer"):
                 self.auto_close_timer.start(5000)
         else:
             llm_path = str(os.path.join(base_dir, self.config["llm"]["local_path"]))
@@ -166,11 +185,9 @@ class ImageWindow(QMainWindow):
             self.brain_loader.error_occurred.connect(self.on_brain_error)
             self.brain_loader.start()
 
-
-
     def speak_text(self, text):
         """触发配音并播放"""
-        self.tts_worker = TTSWorker(self.config,text,engine=self.tts_engine)
+        self.tts_worker = TTSWorker(self.config, text, engine=self.tts_engine)
         self.tts_worker.finished.connect(self.play_voice)
         self.tts_worker.start()
 
@@ -196,22 +213,27 @@ class ImageWindow(QMainWindow):
             buff = ctypes.create_unicode_buffer(length + 1)
             ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
             return buff.value
-        except Exception as e:
+        except Exception:
             return ""
 
     def trigger_random_chatter(self):
-        if getattr(self, 'dnd_mode', False):
+        if getattr(self, "dnd_mode", False):
             return
-        if random.random() > self.config['live2d']['random_chatter']:
+        if random.random() > self.config["live2d"]["random_chatter"]:
             return
         if self.bubble.isVisible():
             return
 
         window_title = self.get_active_window_title()
         ignore_keywords = [
-            "Program Manager", "Task Switching",
-            "python", "pycharm", "cmd", "powershell", "terminal",
-            "MyDesktopPet"
+            "Program Manager",
+            "Task Switching",
+            "python",
+            "pycharm",
+            "cmd",
+            "powershell",
+            "terminal",
+            "MyDesktopPet",
         ]
         if not window_title:
             return
@@ -223,9 +245,11 @@ class ImageWindow(QMainWindow):
                 return
 
         print(f"捕捉到当前窗口信息：{window_title}")
-        secret_prompt = (f"【系统内部指令，无需回复此提示】我当前正在操作的屏幕窗口标题"
-                         f"是：'{window_title}'。请根据这个窗口的名字，用你的人设，"
-                         f"主动弹出来吐槽我一句。字数严格控制在20字以内！直接说吐槽的话！")
+        secret_prompt = (
+            f"【系统内部指令，无需回复此提示】我当前正在操作的屏幕窗口标题"
+            f"是：'{window_title}'。请根据这个窗口的名字，用你的人设，"
+            f"主动弹出来吐槽我一句。字数严格控制在20字以内！直接说吐槽的话！"
+        )
 
         chatter_messages = [
             {"role": "system", "content": self.config["prompt"]["content"]},
@@ -244,7 +268,13 @@ class ImageWindow(QMainWindow):
                 print(f"[Memory] 检索失败: {e}")
 
         chatter_messages.append({"role": "user", "content": secret_prompt})
-        temp_worker = LLMWorker(chatter_messages, self.config, self.llm, self.memory_manager, self.mood_tracker)
+        temp_worker = LLMWorker(
+            chatter_messages,
+            self.config,
+            self.llm,
+            self.memory_manager,
+            self.mood_tracker,
+        )
 
         def on_chatter_response(reply):
             self.bubble.show_text(reply, user_text="")
@@ -259,17 +289,16 @@ class ImageWindow(QMainWindow):
         temp_worker.start()
 
     def close_bubble_action(self):
-        if getattr(self.bubble, 'is_recording', False):
+        if getattr(self.bubble, "is_recording", False):
             print("[拦截] 正在录音，已阻止气泡隐藏！")
             return
         self.bubble.hide()
 
-
     def update_bubble_position(self):
         pet_rect = self.frameGeometry()
         anchor_right = pet_rect.center().x() - 20
-        bubble_x = anchor_right+self.config['bubble']['bubble_x']
-        bubble_y = pet_rect.top()+self.config['bubble']['bubble_y']
+        bubble_x = anchor_right + self.config["bubble"]["bubble_x"]
+        bubble_y = pet_rect.top() + self.config["bubble"]["bubble_y"]
         self.bubble.move(bubble_x, bubble_y)
 
     def _init_main_menu(self):
@@ -306,11 +335,11 @@ class ImageWindow(QMainWindow):
         self.context_menu = QMenu(self)
         self.context_menu.setStyleSheet(MENU_QSS)
         action_input = QAction("对话", self)
-        action_clear=QAction("一键失忆",self)
+        action_clear = QAction("一键失忆", self)
         self.action_dnd = QAction("勿扰模式", self)
         self.action_dnd.setCheckable(True)
         action_close = QAction("退出", self)
-        self.action_tts=QAction(f"切换语音(当前:{self.tts_engine})",self)
+        self.action_tts = QAction(f"切换语音(当前:{self.tts_engine})", self)
         self.action_hide = QAction("缩小到托盘", self)
 
         vol_widget = QWidget()
@@ -320,7 +349,8 @@ class ImageWindow(QMainWindow):
         self.btn_mute_main.setFixedSize(26, 26)
         self.btn_mute_main.setCursor(Qt.PointingHandCursor)
         self.btn_mute_main.setStyleSheet(
-            "border: none; background: transparent; font-size: 15px; padding: 0px;")
+            "border: none; background: transparent; font-size: 15px; padding: 0px;"
+        )
         self.btn_mute_main.clicked.connect(self.toggle_mute)
         self.volume_slider_main = QSlider(Qt.Horizontal)
         self.volume_slider_main.setRange(0, 100)
@@ -356,8 +386,8 @@ class ImageWindow(QMainWindow):
         self.context_menu.addAction(action_close)
 
     def toggle_dnd(self, checked=False):
-        self.dnd_mode = not getattr(self, 'dnd_mode', False)
-        if hasattr(self, 'action_dnd'):
+        self.dnd_mode = not getattr(self, "dnd_mode", False)
+        if hasattr(self, "action_dnd"):
             self.action_dnd.setChecked(self.dnd_mode)
 
         if self.dnd_mode:
@@ -367,7 +397,7 @@ class ImageWindow(QMainWindow):
 
         self.update_bubble_position()
 
-        if hasattr(self, 'auto_close_timer'):
+        if hasattr(self, "auto_close_timer"):
             self.auto_close_timer.start(5000)
 
     def clear_memory(self):
@@ -378,7 +408,9 @@ class ImageWindow(QMainWindow):
                 self.memory_manager.clear_all()
             except Exception as e:
                 print(f"[Memory] 清空失败: {e}")
-        self.bubble.show_text("叮~ 记忆已格式化！刚才发生了什么？我突然什么都不记得了！", user_text=None)
+        self.bubble.show_text(
+            "叮~ 记忆已格式化！刚才发生了什么？我突然什么都不记得了！", user_text=None
+        )
         self.update_bubble_position()
 
     def input_dialog(self):
@@ -409,19 +441,23 @@ class ImageWindow(QMainWindow):
                 retrieval = self.memory_manager.retrieve_all(text)
                 if retrieval["facts"] or retrieval["episodes"]:
                     stats = self.memory_manager.get_stats()
-                    print(f"[Memory] 检索: 事实{retrieval['facts']}, 情节{retrieval['episodes']} (总事实:{stats['facts']} 总情节:{stats['episodes']})")
+                    print(
+                        f"[Memory] 检索: 事实{retrieval['facts']}, 情节{retrieval['episodes']} (总事实:{stats['facts']} 总情节:{stats['episodes']})"
+                    )
                     context = self.memory_manager.format_context(retrieval)
                     if context:
                         sys_msg["content"] = sys_msg["content"] + "\n\n" + context
                 else:
-                    print(f"[Memory] 检索完成，无相关记忆")
+                    print("[Memory] 检索完成，无相关记忆")
             except Exception as e:
                 print(f"[Memory] 检索失败: {e}")
         else:
             print("[Memory] 记忆系统未就绪，跳过检索")
         messages[0] = sys_msg
 
-        worker = LLMWorker(messages, self.config, self.llm, self.memory_manager, self.mood_tracker)
+        worker = LLMWorker(
+            messages, self.config, self.llm, self.memory_manager, self.mood_tracker
+        )
         worker.alarm_requested.connect(
             lambda s, m: QTimer.singleShot(s * 1000, lambda: self.show_reminder(m))
         )
@@ -442,7 +478,7 @@ class ImageWindow(QMainWindow):
                 if reply.startswith("[MEMO:"):
                     close = reply.find("]")
                     fact = reply[6:close].strip()
-                    display_reply = reply[close+1:].strip() + " ✅"
+                    display_reply = reply[close + 1 :].strip() + " ✅"
                 else:
                     display_reply = reply[6:].strip()
                     fact = text
@@ -460,7 +496,7 @@ class ImageWindow(QMainWindow):
             self.speak_text(display_reply)
             self.update_bubble_position()
             self.auto_close_timer.start(15000)
-            if hasattr(self, 'view'):
+            if hasattr(self, "view"):
                 self.view.trigger_action("")
                 self.view.set_expression(self.mood_tracker.get_expression())
             self.chat_memory.append({"role": "assistant", "content": reply})
@@ -468,8 +504,13 @@ class ImageWindow(QMainWindow):
 
             # Layer 3: auto-summarize conversations into episodic memory
             self.turns_since_summary += 1
-            if self.memory_manager is not None and self.turns_since_summary >= self.summary_interval:
-                recent = self.chat_memory[-(self.summary_interval * 2):]  # N user+assistant pairs
+            if (
+                self.memory_manager is not None
+                and self.turns_since_summary >= self.summary_interval
+            ):
+                recent = self.chat_memory[
+                    -(self.summary_interval * 2) :
+                ]  # N user+assistant pairs
                 self.memory_manager.summarize_and_store(recent)
                 self.turns_since_summary = 0
 
@@ -487,10 +528,11 @@ class ImageWindow(QMainWindow):
     def _enable_drag_visuals(self):
         self.setCursor(Qt.ClosedHandCursor)
 
-
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_pos = (
+                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            )
             self.visual_timer.start(150)
             self.setCursor(Qt.ClosedHandCursor)
             event.accept()
@@ -543,10 +585,11 @@ class ImageWindow(QMainWindow):
 
     def closeEvent(self, event):
         print("正在退出...")
-        if hasattr(self, 'player'):
+        if hasattr(self, "player"):
             self.player.stop()
             self.player.setSource(QUrl())
         import glob
+
         temp_files = glob.glob("temp_voice_*.*")
         for file in temp_files:
             try:
@@ -555,9 +598,9 @@ class ImageWindow(QMainWindow):
             except Exception:
                 pass
 
-        if hasattr(self, 'save_memory'):
+        if hasattr(self, "save_memory"):
             self.save_memory()
-        if hasattr(self, 'lip_sync_timer') and self.lip_sync_timer.isActive():
+        if hasattr(self, "lip_sync_timer") and self.lip_sync_timer.isActive():
             self.lip_sync_timer.stop()
         event.accept()
         print("✅ 画面已销毁")
@@ -570,12 +613,13 @@ class ImageWindow(QMainWindow):
             self.tts_engine = "edge-tts"
 
         self.action_tts.setText(f"切换语音(当前：{self.tts_engine})")
-        self.bubble.show_text(f"已切换到{self.tts_engine}引擎!",user_text="")
+        self.bubble.show_text(f"已切换到{self.tts_engine}引擎!", user_text="")
         self.update_bubble_position()
         self.auto_close_timer.start(5000)
 
     def save_to_diary(self, content):
         import datetime
+
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         entry = {"time": timestamp, "content": content}
         diary_data = []
@@ -598,8 +642,8 @@ class ImageWindow(QMainWindow):
         screen_geo = QApplication.primaryScreen().availableGeometry()
         pet_width = self.width()
         pet_height = self.height()
-        target_x = screen_geo.width() - self.config['window']['margin_x']-pet_width
-        target_y = screen_geo.height() - self.config['window']['margin_y']-pet_height
+        target_x = screen_geo.width() - self.config["window"]["margin_x"] - pet_width
+        target_y = screen_geo.height() - self.config["window"]["margin_y"] - pet_height
         self.move(target_x, target_y)
 
     def analyze_audio_volume(self, audio_path):
@@ -615,9 +659,9 @@ class ImageWindow(QMainWindow):
             volumes = []
 
             for i in range(0, len(data), chunk_size):
-                chunk = data[i:i + chunk_size]
+                chunk = data[i : i + chunk_size]
                 # 计算这段时间的平均音量大小
-                rms = np.sqrt(np.mean(chunk ** 2))
+                rms = np.sqrt(np.mean(chunk**2))
                 volumes.append(float(rms))
 
             # 归一化：把最大音量变成 1.0
@@ -634,7 +678,7 @@ class ImageWindow(QMainWindow):
 
     def update_lip_sync(self):
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-            if hasattr(self, 'auto_close_timer') :
+            if hasattr(self, "auto_close_timer"):
                 self.auto_close_timer.start(3000)
             current_time_ms = self.player.position()
             chunk_index = int(current_time_ms / (1000 / 30))
@@ -642,11 +686,11 @@ class ImageWindow(QMainWindow):
             if chunk_index < len(self.volume_data):
                 volume = self.volume_data[chunk_index]
                 mouth_open = min(volume * 2.0, 1.0)
-                if hasattr(self, 'view'):
+                if hasattr(self, "view"):
                     self.view.mouth_open = mouth_open
         else:
             self.lip_sync_timer.stop()
-            if hasattr(self, 'view'):
+            if hasattr(self, "view"):
                 self.view.mouth_open = 0.0
 
     def _init_tray_icon(self, icon_path=None):
@@ -726,7 +770,7 @@ class ImageWindow(QMainWindow):
             self.show()
             self.bubble.show_text("我又回来啦！", user_text="")
             self.update_bubble_position()
-            if hasattr(self, 'auto_close_timer'):
+            if hasattr(self, "auto_close_timer"):
                 self.auto_close_timer.start(5000)
         else:
             self.hide()
@@ -736,24 +780,26 @@ class ImageWindow(QMainWindow):
         is_muted = not self.audio_output.isMuted()
         self.audio_output.setMuted(is_muted)
         icon = "🔇" if is_muted else "🔊"
-        if hasattr(self, 'btn_mute'): self.btn_mute.setText(icon)
-        if hasattr(self, 'btn_mute_main'): self.btn_mute_main.setText(icon)
+        if hasattr(self, "btn_mute"):
+            self.btn_mute.setText(icon)
+        if hasattr(self, "btn_mute_main"):
+            self.btn_mute_main.setText(icon)
         # msg = "嘘——我现在被物理闭麦啦！" if is_muted else "我又可以发出声音啦！"
         # self.bubble.show_text(msg, user_text="")
 
-        if hasattr(self, 'auto_close_timer'):
+        if hasattr(self, "auto_close_timer"):
             self.auto_close_timer.start(3000)
 
     def change_volume(self, value):
         volume_float = value / 100.0
         self.audio_output.setVolume(volume_float)
         self.config["live2d"]["volume"] = volume_float
-        if hasattr(self, 'volume_slider'):
+        if hasattr(self, "volume_slider"):
             self.volume_slider.blockSignals(True)
             self.volume_slider.setValue(value)
             self.volume_slider.blockSignals(False)
 
-        if hasattr(self, 'volume_slider_main'):
+        if hasattr(self, "volume_slider_main"):
             self.volume_slider_main.blockSignals(True)
             self.volume_slider_main.setValue(value)
             self.volume_slider_main.blockSignals(False)
@@ -761,8 +807,10 @@ class ImageWindow(QMainWindow):
         if self.audio_output.isMuted():
             self.audio_output.setMuted(False)
             icon = "🔊"
-            if hasattr(self, 'btn_mute'): self.btn_mute.setText(icon)
-            if hasattr(self, 'btn_mute_main'): self.btn_mute_main.setText(icon)
+            if hasattr(self, "btn_mute"):
+                self.btn_mute.setText(icon)
+            if hasattr(self, "btn_mute_main"):
+                self.btn_mute_main.setText(icon)
 
     def on_brain_loaded(self, loaded_llm):
         self.llm = loaded_llm
@@ -770,7 +818,7 @@ class ImageWindow(QMainWindow):
 
         # 👉 核心防暗杀机制：不许立刻 hide！
         # 强制把动画目标设为 100，并启动
-        if hasattr(self, 'progress_anim'):
+        if hasattr(self, "progress_anim"):
             self.progress_anim.setEndValue(100)
             self.progress_anim.start()
 
@@ -784,7 +832,7 @@ class ImageWindow(QMainWindow):
 
     def finish_brain_loading(self):
         self.progress_bar.hide()
-        if hasattr(self, 'auto_close_timer'):
+        if hasattr(self, "auto_close_timer"):
             self.auto_close_timer.start(5000)
 
     def on_brain_error(self, error_msg):
@@ -801,7 +849,7 @@ class ImageWindow(QMainWindow):
             retrieval_k=mem_config.get("retrieval_k", 3),
             llm_mode=self.llm_mode,
             embed_mode=mem_config.get("embed_mode", "local"),
-            summary_interval=self.summary_interval
+            summary_interval=self.summary_interval,
         )
         self.memory_loader.memory_ready.connect(self.on_memory_loaded)
         self.memory_loader.error_occurred.connect(self.on_memory_error)
@@ -817,7 +865,7 @@ class ImageWindow(QMainWindow):
     def on_progress_update(self, progress_val):
         percent = int(progress_val * 100)
 
-        if not hasattr(self, 'progress_anim'):
+        if not hasattr(self, "progress_anim"):
             self.progress_anim = QPropertyAnimation(self.progress_bar, b"value")
             self.progress_anim.setDuration(500)
             self.progress_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -832,7 +880,7 @@ class ImageWindow(QMainWindow):
     # 👉 重写 Qt 的内置显示事件
     def showEvent(self, event):
         super().showEvent(event)
-        if hasattr(self, 'bubble'):
+        if hasattr(self, "bubble"):
             self.update_bubble_position()
 
     def on_whisper_loaded(self, loaded_whisper):
